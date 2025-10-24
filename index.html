@@ -192,6 +192,15 @@
           <span id="zoomValue" style="min-width:40px;display:inline-block;text-align:center">1.2x</span>
           <button class="btn secondary" onclick="resetZoom()">Reset</button>
         </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <label><input type="checkbox" id="enableDragDrop" checked> <strong>Enable Drag & Drop</strong></label>
+          <button class="btn primary" onclick="rotateSelectedCase()" title="Rotate selected case 90° (or press R key)">
+            ↻ Rotate
+          </button>
+        </div>
+        <div style="font-size:10px;color:#64748b;">
+          <strong>Controls:</strong> Left-click = Drag • Right-click = Rotate • R key = Rotate • ESC = Deselect
+        </div>
       
        
     
@@ -229,12 +238,21 @@ let selectedCaseIndex = -1;
 let scale = 1.0;
 const canvasPadding = 20;
 
+// Drag and drop state
+let draggedCase = null;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let isDragging = false;
+let currentView = 'top';
+let selectedCase = null; // Track selected case for rotation
+const snapDistance = 8; // Snap within 8 inches
+
 const defaultColors = ['#3498db','#2ecc71','#e74c3c','#f39c12','#9b59b6','#1abc9c','#34495e','#e67e22','#95a5a6','#d35400'];
 
 // Data classes
 class TruckProfile{ constructor(name,length,width,height,maxWeight=0){ Object.assign(this,{name,length,width,height,maxWeight}); } }
 class CaseProfile{ constructor(name,side1,side2,height,weight=0,fragile=false,freestack=false,maxStack=2,color='#3498db',productType=''){ Object.assign(this,{name,side1,side2,height,weight,fragile,freestack,maxStack,color,productType}); } }
-class CaseLoad{ constructor(profile,quantity){ this.profile=profile; this.quantity=quantity; this.packedCount=0; } }
+class CaseLoad{ constructor(profile,quantity,globalStack=99){ this.profile=profile; this.quantity=quantity; this.packedCount=0; this.globalStack=globalStack; } }
 class PackedCase{ constructor(x,y,z,width,length,height,layer,orientation,caseType,rotation=0,caseProfile=null,isFreestack=false){ Object.assign(this,{x,y,z,width,length,height,layer,orientation,caseType,rotation,caseProfile,isFreestack}); } }
 
 // ===== Logging & status =====
@@ -439,7 +457,7 @@ function updateCaseList(){
     const div=document.createElement('div'); 
     div.className='item'+(i===selectedCaseIndex?' selected':''); 
     const badge=load.profile.freestack?' [FREESTACK]':''; 
-    const stack=` (Stack ${load.profile.maxStack})`; 
+    const stack=` (Max: ${load.profile.maxStack}, Global: ${load.globalStack})`; 
     div.textContent=`${load.profile.name}: ${load.quantity} (${load.packedCount} packed)${stack}${badge}`; 
     div.onclick=()=>{selectedCaseIndex=i; updateCaseList();}; 
     list.appendChild(div); 
@@ -454,23 +472,25 @@ function updateCaseList(){
 function addCaseToLoad(){ 
   const name=document.getElementById('caseProfile').value; 
   const qty=+document.getElementById('caseQuantity').value; 
+  const globalStack=+document.getElementById('globalStack').value || 99;
   const p=caseProfiles.find(v=>v.name===name); 
   if(!p||!(qty>0)) return alert('Select a case and valid quantity'); 
-  caseLoads.push(new CaseLoad(p,qty)); 
-  debugLog(`Added ${qty} × ${name}`); 
+  caseLoads.push(new CaseLoad(p,qty,globalStack)); 
+  debugLog(`Added ${qty} × ${name} (Global Stack: ${globalStack})`); 
   updateCaseList(); 
 }
 
 function addTestLoad(){ 
   caseLoads=[]; 
+  const globalStack=+document.getElementById('globalStack').value || 99;
   const selectedProduct = document.getElementById('productType').value;
   const filteredCases = selectedProduct
     ? caseProfiles.filter(c => c.productType === selectedProduct)
     : caseProfiles;
     
-  if(filteredCases.length >= 1) caseLoads.push(new CaseLoad(filteredCases[0], 8));
-  if(filteredCases.length >= 2) caseLoads.push(new CaseLoad(filteredCases[1], 4));
-  if(filteredCases.length >= 3) caseLoads.push(new CaseLoad(filteredCases[2], 3));
+  if(filteredCases.length >= 1) caseLoads.push(new CaseLoad(filteredCases[0], 8, globalStack));
+  if(filteredCases.length >= 2) caseLoads.push(new CaseLoad(filteredCases[1], 4, globalStack));
+  if(filteredCases.length >= 3) caseLoads.push(new CaseLoad(filteredCases[2], 3, globalStack));
   
   updateCaseList(); 
   debugLog('Added test load'); 
@@ -478,12 +498,13 @@ function addTestLoad(){
 
 function quickTest(){ 
   caseLoads=[]; 
+  const globalStack=+document.getElementById('globalStack').value || 99;
   const selectedProduct = document.getElementById('productType').value;
   const filteredCases = selectedProduct
     ? caseProfiles.filter(c => c.productType === selectedProduct)
     : caseProfiles;
     
-  if(filteredCases.length >= 1) caseLoads.push(new CaseLoad(filteredCases[0], 5));
+  if(filteredCases.length >= 1) caseLoads.push(new CaseLoad(filteredCases[0], 5, globalStack));
   
   updateCaseList(); 
   packAndVisualize(); 
@@ -600,8 +621,6 @@ function canPlaceFreestackItem(arr, surface, w,l,h){
   return {count:pos.length, positions:pos};
 }
 function placeFreestackItems(arr,L,W,H){
-  const userStackMax = +document.getElementById('globalStack').value || 99;
-
   // Expand freestack loads into a flat list of items
   const freestackLoads = [];
   for(const load of caseLoads){
@@ -618,7 +637,7 @@ function placeFreestackItems(arr,L,W,H){
   const byProfile = new Map();
   for(const load of freestackLoads){
     const p = load.profile;
-    const key = [p.name, p.side1, p.side2, p.height, p.maxStack].join('|');
+    const key = [p.name, p.side1, p.side2, p.height, p.maxStack, load.globalStack].join('|');
     const list = byProfile.get(key) || [];
     list.push(load);
     byProfile.set(key, list);
@@ -627,14 +646,14 @@ function placeFreestackItems(arr,L,W,H){
   let totalPlaced = 0;
 
   for(const [key, items] of byProfile.entries()){
-    const [name, s1S, s2S, hS, msS] = key.split('|');
-    const s1 = +s1S, s2 = +s2S, h = +hS, pMax = +msS;
+    const [name, s1S, s2S, hS, msS, globalStackS] = key.split('|');
+    const s1 = +s1S, s2 = +s2S, h = +hS, pMax = +msS, globalStack = +globalStackS;
     let itemsRemaining = items.length;
 
     // Allowed layers for this freestack type
-    const allowedLayersGlobal = Math.max(1, Math.min(userStackMax, pMax));
+    const allowedLayersGlobal = Math.max(1, Math.min(globalStack, pMax));
 
-    debugLog(`Freestack '${name}': trying up to ${allowedLayersGlobal} layers (h=${h})`);
+    debugLog(`Freestack '${name}': trying up to ${allowedLayersGlobal} layers (h=${h}, Global Stack: ${globalStack})`);
 
     // Try both orientations; prefer the one that fills more positions per surface first
     for(const [w,l,rot] of [[s1,s2,0],[s2,s1,90]]){
@@ -704,11 +723,10 @@ function placeFreestackItems(arr,L,W,H){
 function packAndVisualize(){
   if(!caseLoads.length) return alert('Add cases to load first');
   const L=+document.getElementById('truckLength').value, W=+document.getElementById('truckWidth').value, H=+document.getElementById('truckHeight').value;
-  const userStackMax = +document.getElementById('globalStack').value || 99;
   caseLoads.forEach(l=>l.packedCount=0);
   debugLog('==================================================');
   debugLog(`START PACK | Truck ${L}L × ${W}W × ${H}H`);
-  debugLog('Individual Stack Heights (per case):'); caseLoads.forEach(l=> debugLog(`  ${l.profile.name}: Max Stack ${l.profile.maxStack}`));
+  debugLog('Individual Stack Heights (per case):'); caseLoads.forEach(l=> debugLog(`  ${l.profile.name}: Max Stack ${l.profile.maxStack}, Global Stack ${l.globalStack}`));
   const btn=document.getElementById('packButton'); btn.disabled=true; btn.textContent='Packing…';
   setTimeout(()=>{
     try{
@@ -720,10 +738,10 @@ function packAndVisualize(){
       // Temporarily set caseLoads = regular for internal helpers
       const original = caseLoads; caseLoads = regular;
       let arrangement=[];
-      if(alg==='auto_grid'){ debugLog('Using Auto Grid (with rotated remainder) for regular items'); arrangement = autoGridPack(L,W,H,userStackMax); }
-      else if(alg==='smart'){ debugLog('Using smart packing algorithm for regular items'); arrangement = smartPack(L,W,H,userStackMax); }
-      else { debugLog('Using grid packing algorithm for regular items'); arrangement = simpleGridPack(L,W,H,userStackMax); }
-      if(alg!=='auto_grid'){ arrangement = edgeFillPass(arrangement,L,W,H,userStackMax); }
+      if(alg==='auto_grid'){ debugLog('Using Auto Grid (with rotated remainder) for regular items'); arrangement = autoGridPack(L,W,H); }
+      else if(alg==='smart'){ debugLog('Using smart packing algorithm for regular items'); arrangement = smartPack(L,W,H); }
+      else { debugLog('Using grid packing algorithm for regular items'); arrangement = simpleGridPack(L,W,H); }
+      if(alg!=='auto_grid'){ arrangement = edgeFillPass(arrangement,L,W,H); }
       // Restore full loads
       caseLoads = original;
       if(free.length){ debugLog('=============================='); debugLog('FREESTACK PHASE: Placing items on existing surfaces'); arrangement = placeFreestackItems(arrangement,L,W,H); }
@@ -740,10 +758,10 @@ function packAndVisualize(){
   }, 20);
 }
 
-function allowedStackFor(p,H,userStackMax){ return Math.max(1, Math.min(p.maxStack, Math.floor(H / p.height), userStackMax)); }
+function allowedStackFor(load,H){ return Math.max(1, Math.min(load.profile.maxStack, Math.floor(H / load.profile.height), load.globalStack)); }
 
 // Smart pack: available position frontier
-function smartPack(L,W,H,userStackMax){
+function smartPack(L,W,H){
   const out=[]; const toPack=[];
   for(const load of caseLoads){ if(!load.profile.freestack){ for(let i=0;i<load.quantity;i++) toPack.push(load); } }
   if(!toPack.length) return out;
@@ -752,7 +770,7 @@ function smartPack(L,W,H,userStackMax){
   const t0 = performance.now();
   for(const load of toPack){
     if(performance.now()-t0 > 30000){ debugLog('Timeout in smart pack'); break; }
-    const p=load.profile; const allowed = allowedStackFor(p,H,userStackMax);
+    const p=load.profile; const allowed = allowedStackFor(load,H);
     let best=null;
     for(const [w,l,rot] of [[p.side1,p.side2,0],[p.side2,p.side1,90]]){
       if(w>L||l>W||p.height>H) continue;
@@ -780,7 +798,7 @@ function smartPack(L,W,H,userStackMax){
 // Grid pack: step scanning + stacking constraint
 // 2. Modify the smartPack function to support Force Max Stack:
 
-function smartPack(L,W,H,userStackMax){
+function smartPack(L,W,H){
   const forceMaxStack = document.getElementById('forceMaxStack');
   const useForceMaxStack = forceMaxStack ? forceMaxStack.checked : false;
   
@@ -802,7 +820,7 @@ function smartPack(L,W,H,userStackMax){
     // Pack each type together, stacking vertically first
     for(const [typeName, loads] of byType.entries()){
       const p = loads[0].profile;
-      const allowed = allowedStackFor(p,H,userStackMax);
+      const allowed = allowedStackFor(loads[0],H);
       
       for(const load of loads){
         let placed = false;
@@ -852,7 +870,7 @@ function smartPack(L,W,H,userStackMax){
   const t0 = performance.now();
   for(const load of toPack){
     if(performance.now()-t0 > 30000){ debugLog('Timeout in smart pack'); break; }
-    const p=load.profile; const allowed = allowedStackFor(p,H,userStackMax);
+    const p=load.profile; const allowed = allowedStackFor(load,H);
     let best=null;
     for(const [w,l,rot] of [[p.side1,p.side2,0],[p.side2,p.side1,90]]){
       if(w>L||l>W||p.height>H) continue;
@@ -877,7 +895,7 @@ function smartPack(L,W,H,userStackMax){
   return out;
 }
 
-function simpleGridPack(L,W,H,userStackMax){
+function simpleGridPack(L,W,H){
   const forceMaxStack = document.getElementById('forceMaxStack');
   const useForceMaxStack = forceMaxStack ? forceMaxStack.checked : false;
   
@@ -892,7 +910,7 @@ function simpleGridPack(L,W,H,userStackMax){
   
   for(const load of toPack){
     if(performance.now()-t0 > 30000){ debugLog('Timeout in grid pack'); break; }
-    const p=load.profile; const allowed = allowedStackFor(p,H,userStackMax);
+    const p=load.profile; const allowed = allowedStackFor(load,H);
     if(p.side1>L || p.side2>W || p.height>H) continue;
     let placed=false;
     
@@ -1041,11 +1059,11 @@ function _packMainAndRotatedLogic(L,W,caseLen,caseWid,numCases,maxStack,staggere
   return {tuples:out, methodName};
 }
 
-function autoGridPack(L,W,H,userStackMax){
+function autoGridPack(L,W,H){
   const regular = caseLoads.filter(l=>!l.profile.freestack);
-  if(regular.length!==1){ debugLog('Auto Grid: multiple regular case types detected; falling back to Grid.'); return simpleGridPack(L,W,H,userStackMax); }
+  if(regular.length!==1){ debugLog('Auto Grid: multiple regular case types detected; falling back to Grid.'); return simpleGridPack(L,W,H); }
   const load = regular[0]; const p=load.profile; const s1=p.side1, s2=p.side2, h=p.height; const q=load.quantity;
-  const maxStack = allowedStackFor(p,H,userStackMax);
+  const maxStack = allowedStackFor(load,H);
   const candidates=[];
   for(const [mainLen,mainWid,orientName] of [[s1,s2,'side1-across-width'],[s2,s1,'side2-across-width']]){
     for(const staggered of [false,true]){
@@ -1066,20 +1084,20 @@ function autoGridPack(L,W,H,userStackMax){
     placed++;
   }
   const rotatedAny = arr.some(c=>c.rotation===90); const modeText = best.staggered? 'Staggered':'Grid';
-  debugLog(`Auto Grid selected: ${best.methodName} | ${modeText} | Rotated remainder used: ${rotatedAny} | ${placed}/${q} cases | Individual MaxStack=${p.maxStack}`);
+  debugLog(`Auto Grid selected: ${best.methodName} | ${modeText} | Rotated remainder used: ${rotatedAny} | ${placed}/${q} cases | Individual MaxStack=${p.maxStack}, Global MaxStack=${load.globalStack}`);
   load.packedCount = Math.min(q, placed);
   return arr;
 }
 
 // Edge fill pass: try to tuck leftover regulars at edges (z=0) while honoring like-case stacks
-function edgeFillPass(arr,L,W,H,userStackMax){
+function edgeFillPass(arr,L,W,H){
   // Build remaining loads list
   const remaining=[];
   for(const load of caseLoads){ if(!load.profile.freestack){ const rem = Math.max(0, load.quantity - load.packedCount); for(let i=0;i<rem;i++) remaining.push(load); } }
   if(!remaining.length) return arr;
 
   function tryPlace(load,x,y,w,l,rot){
-    const p=load.profile; const allowed = allowedStackFor(p,H,userStackMax);
+    const p=load.profile; const allowed = allowedStackFor(load,H);
     if(x+w<=L && y+l<=W && p.height<=H && isSpaceFree(arr,x,y,0,w,l,p.height) && canPlaceWithLikeStack(arr,x,y,0,w,l,p.name,allowed)){
       arr.push(new PackedCase(x,y,0,w,l,p.height,1, rot===0?'normal':'rotated', p.name, rot, p, false)); load.packedCount += 1; return true;
     }
@@ -1098,6 +1116,78 @@ function edgeFillPass(arr,L,W,H,userStackMax){
     }
   }
   return arr;
+}
+
+function rotateCase(caseObj) {
+  if (!caseObj) return;
+  
+  const L = +document.getElementById('truckLength').value;
+  const W = +document.getElementById('truckWidth').value;
+  const H = +document.getElementById('truckHeight').value;
+  
+  // Store original dimensions
+  const originalWidth = caseObj.width;
+  const originalLength = caseObj.length;
+  
+  // Toggle rotation: 0° -> 90° -> 180° -> 270° -> 0°
+  // But for rectangular cases, 180° = 0° and 270° = 90°, so just toggle 0/90
+  if (caseObj.rotation === 0 || caseObj.rotation === 180) {
+    caseObj.rotation = 90;
+    caseObj.orientation = 'rotated';
+  } else {
+    caseObj.rotation = 0;
+    caseObj.orientation = 'normal';
+  }
+  
+  // Swap width and length
+  caseObj.width = originalLength;
+  caseObj.length = originalWidth;
+  
+  // Check if rotated case fits in truck at current position
+  if (caseObj.x + caseObj.width > L) {
+    caseObj.x = L - caseObj.width;
+    if (caseObj.x < 0) caseObj.x = 0;
+  }
+  if (caseObj.y + caseObj.length > W) {
+    caseObj.y = W - caseObj.length;
+    if (caseObj.y < 0) caseObj.y = 0;
+  }
+  
+  // Check for collisions with new orientation
+  const collides = currentPacking.some(other => {
+    if (other === caseObj) return false;
+    const overlapX = !(caseObj.x + caseObj.width <= other.x || caseObj.x >= other.x + other.width);
+    const overlapY = !(caseObj.y + caseObj.length <= other.y || caseObj.y >= other.y + other.length);
+    const overlapZ = !(caseObj.z + caseObj.height <= other.z || caseObj.z >= other.z + other.height);
+    return overlapX && overlapY && overlapZ;
+  });
+  
+  if (collides) {
+    // Revert rotation if it causes collision
+    if (caseObj.rotation === 90) {
+      caseObj.rotation = 0;
+      caseObj.orientation = 'normal';
+    } else {
+      caseObj.rotation = 90;
+      caseObj.orientation = 'rotated';
+    }
+    caseObj.width = originalWidth;
+    caseObj.length = originalLength;
+    debugLog(`Cannot rotate ${caseObj.caseType} - would cause collision`);
+    return false;
+  }
+  
+  debugLog(`Rotated ${caseObj.caseType} to ${caseObj.rotation}° at position (${caseObj.x.toFixed(1)}, ${caseObj.y.toFixed(1)}, ${caseObj.z.toFixed(1)})`);
+  updateVisualization();
+  return true;
+}
+
+function rotateSelectedCase() {
+  if (selectedCase) {
+    rotateCase(selectedCase);
+  } else if (draggedCase && isDragging) {
+    rotateCase(draggedCase);
+  }
 }
 
 // ===== Visualization (2D only) =====
@@ -1233,20 +1323,48 @@ function drawCase2D(ctx,pc,index,view,H){
   }
   
   let color = pc.caseProfile? pc.caseProfile.color : '#3498db'; 
-  if(pc.rotation===90) color='#f39c12'; 
-  ctx.fillStyle=color; 
-  ctx.fillRect(x,y,w,h); 
-  ctx.setLineDash(pc.isFreestack?[5,4]:[]); 
-  ctx.lineWidth= pc.isFreestack? 2:1; 
-  ctx.strokeStyle='#0f172a'; 
-  ctx.strokeRect(x,y,w,h); 
-  ctx.setLineDash([]); 
+  if(pc.rotation===90) color='#f39c12';
+  
+  // Highlight if being dragged
+  if(pc === draggedCase && isDragging) {
+    ctx.fillStyle = '#fbbf24'; // Bright yellow for dragging
+    ctx.fillRect(x, y, w, h);
+    ctx.setLineDash([]);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#f59e0b';
+    ctx.strokeRect(x, y, w, h);
+  } else if(pc === selectedCase) {
+    // Selected case - cyan highlight
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+    ctx.setLineDash([5, 3]);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#06b6d4'; // Cyan for selection
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    
+    // Draw rotation indicator (small arrow in corner)
+    ctx.fillStyle = '#06b6d4';
+    ctx.font = 'bold 14px Arial';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText('↻', x + w - 4, y + 4);
+  } else {
+    ctx.fillStyle=color; 
+    ctx.fillRect(x,y,w,h); 
+    ctx.setLineDash(pc.isFreestack?[5,4]:[]); 
+    ctx.lineWidth= pc.isFreestack? 2:1; 
+    ctx.strokeStyle='#0f172a'; 
+    ctx.strokeRect(x,y,w,h); 
+    ctx.setLineDash([]); 
+  }
   
   if(w>24&&h>16){ 
-    ctx.fillStyle='#fff'; 
+    ctx.fillStyle= (pc === draggedCase && isDragging) ? '#000' : (pc === selectedCase) ? '#000' : '#fff'; 
     ctx.font='bold 10px Arial'; 
-    ctx.textAlign='center'; 
-    ctx.fillText((index+1).toString(), x+w/2, y+h/2+3); 
+    ctx.textAlign='center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((index+1).toString(), x+w/2, y+h/2); 
   }
 }
 
@@ -1277,42 +1395,310 @@ function resetZoom(){
   updateVisualization(); 
 }
 
-// Pointer interactions for 2D views only
+// Pointer interactions for 2D views with drag-and-drop and auto-snap
 (function attachCanvasInteractions(){
   const canvas = document.getElementById('visualizationCanvas');
-  let dragging=false;
-  let lastX=0,lastY=0;
+  let panning = false;
+  let lastX = 0, lastY = 0;
   
-  canvas.addEventListener('mousedown',(e)=>{
-    dragging=true; 
-    lastX=e.clientX; 
-    lastY=e.clientY;
+  // Convert canvas coordinates to truck coordinates
+  function canvasToTruck(canvasX, canvasY) {
+    const view = document.querySelector('input[name="view"]:checked').value;
+    const L = +document.getElementById('truckLength').value;
+    const W = +document.getElementById('truckWidth').value;
+    const H = +document.getElementById('truckHeight').value;
+    
+    const x = (canvasX - canvasPadding) / scale;
+    const y = (canvasY - canvasPadding) / scale;
+    
+    if (view === 'top') {
+      return { x: x, y: y, z: null };
+    } else if (view === 'side') {
+      return { x: x, y: null, z: H - y };
+    } else { // front
+      return { x: null, y: x, z: H - y };
+    }
+  }
+  
+  // Find case at canvas position
+  function findCaseAt(canvasX, canvasY) {
+    const view = document.querySelector('input[name="view"]:checked').value;
+    const H = +document.getElementById('truckHeight').value;
+    
+    // Check cases in reverse order (top to bottom in rendering)
+    for (let i = currentPacking.length - 1; i >= 0; i--) {
+      const pc = currentPacking[i];
+      let x, y, w, h;
+      
+      if (view === 'top') {
+        x = canvasPadding + pc.x * scale;
+        y = canvasPadding + pc.y * scale;
+        w = pc.width * scale;
+        h = pc.length * scale;
+      } else if (view === 'side') {
+        x = canvasPadding + pc.x * scale;
+        y = canvasPadding + (H - pc.z - pc.height) * scale;
+        w = pc.width * scale;
+        h = pc.height * scale;
+      } else { // front
+        x = canvasPadding + pc.y * scale;
+        y = canvasPadding + (H - pc.z - pc.height) * scale;
+        w = pc.length * scale;
+        h = pc.height * scale;
+      }
+      
+      if (canvasX >= x && canvasX <= x + w && canvasY >= y && canvasY <= y + h) {
+        return { case: pc, index: i };
+      }
+    }
+    return null;
+  }
+  
+  // Find snap positions based on other cases
+  function findSnapPosition(draggedCase, targetX, targetY, targetZ) {
+    const view = document.querySelector('input[name="view"]:checked').value;
+    const L = +document.getElementById('truckLength').value;
+    const W = +document.getElementById('truckWidth').value;
+    const H = +document.getElementById('truckHeight').value;
+    
+    let bestX = targetX;
+    let bestY = targetY;
+    let bestZ = targetZ !== null ? targetZ : draggedCase.z;
+    let minDist = snapDistance;
+    
+    // Snap to truck boundaries
+    if (Math.abs(targetX) < snapDistance) bestX = 0;
+    if (Math.abs(targetX + draggedCase.width - L) < snapDistance) bestX = L - draggedCase.width;
+    if (targetY !== null) {
+      if (Math.abs(targetY) < snapDistance) bestY = 0;
+      if (Math.abs(targetY + draggedCase.length - W) < snapDistance) bestY = W - draggedCase.length;
+    }
+    if (targetZ !== null) {
+      if (Math.abs(targetZ) < snapDistance) bestZ = 0;
+      if (Math.abs(targetZ + draggedCase.height - H) < snapDistance) bestZ = H - draggedCase.height;
+    }
+    
+    // Snap to other cases
+    for (const other of currentPacking) {
+      if (other === draggedCase) continue;
+      
+      if (view === 'top') {
+        // Snap X to other case edges
+        if (Math.abs(targetY - other.y) < draggedCase.length && Math.abs(targetY + draggedCase.length - other.y - other.length) < draggedCase.length) {
+          if (Math.abs(targetX - (other.x + other.width)) < minDist) {
+            bestX = other.x + other.width;
+            minDist = Math.abs(targetX - (other.x + other.width));
+          }
+          if (Math.abs(targetX + draggedCase.width - other.x) < minDist) {
+            bestX = other.x - draggedCase.width;
+            minDist = Math.abs(targetX + draggedCase.width - other.x);
+          }
+          if (Math.abs(targetX - other.x) < minDist) {
+            bestX = other.x;
+            minDist = Math.abs(targetX - other.x);
+          }
+        }
+        
+        // Snap Y to other case edges
+        if (Math.abs(targetX - other.x) < draggedCase.width && Math.abs(targetX + draggedCase.width - other.x - other.width) < draggedCase.width) {
+          if (Math.abs(targetY - (other.y + other.length)) < snapDistance) bestY = other.y + other.length;
+          if (Math.abs(targetY + draggedCase.length - other.y) < snapDistance) bestY = other.y - draggedCase.length;
+          if (Math.abs(targetY - other.y) < snapDistance) bestY = other.y;
+        }
+      } else if (view === 'side') {
+        // Snap X (length dimension)
+        if (Math.abs(targetZ - other.z) < draggedCase.height && Math.abs(targetZ + draggedCase.height - other.z - other.height) < draggedCase.height) {
+          if (Math.abs(targetX - (other.x + other.width)) < snapDistance) bestX = other.x + other.width;
+          if (Math.abs(targetX + draggedCase.width - other.x) < snapDistance) bestX = other.x - draggedCase.width;
+          if (Math.abs(targetX - other.x) < snapDistance) bestX = other.x;
+        }
+        
+        // Snap Z (height)
+        if (Math.abs(targetX - other.x) < draggedCase.width && Math.abs(targetX + draggedCase.width - other.x - other.width) < draggedCase.width) {
+          if (Math.abs(targetZ - (other.z + other.height)) < snapDistance) bestZ = other.z + other.height;
+          if (Math.abs(targetZ + draggedCase.height - other.z) < snapDistance) bestZ = other.z - draggedCase.height;
+          if (Math.abs(targetZ - other.z) < snapDistance) bestZ = other.z;
+        }
+      } else { // front view
+        // Similar snapping for front view
+        if (Math.abs(targetZ - other.z) < draggedCase.height && Math.abs(targetZ + draggedCase.height - other.z - other.height) < draggedCase.height) {
+          if (Math.abs(targetY - (other.y + other.length)) < snapDistance) bestY = other.y + other.length;
+          if (Math.abs(targetY + draggedCase.length - other.y) < snapDistance) bestY = other.y - draggedCase.length;
+          if (Math.abs(targetY - other.y) < snapDistance) bestY = other.y;
+        }
+        
+        if (Math.abs(targetY - other.y) < draggedCase.length && Math.abs(targetY + draggedCase.length - other.y - other.length) < draggedCase.length) {
+          if (Math.abs(targetZ - (other.z + other.height)) < snapDistance) bestZ = other.z + other.height;
+          if (Math.abs(targetZ + draggedCase.height - other.z) < snapDistance) bestZ = other.z - draggedCase.height;
+          if (Math.abs(targetZ - other.z) < snapDistance) bestZ = other.z;
+        }
+      }
+    }
+    
+    return { x: bestX, y: bestY, z: bestZ };
+  }
+  
+  // Check if position would cause collision
+  function wouldCollide(draggedCase, x, y, z) {
+    for (const other of currentPacking) {
+      if (other === draggedCase) continue;
+      
+      // Check for overlap
+      const overlapX = !(x + draggedCase.width <= other.x || x >= other.x + other.width);
+      const overlapY = !(y + draggedCase.length <= other.y || y >= other.y + other.length);
+      const overlapZ = !(z + draggedCase.height <= other.z || z >= other.z + other.height);
+      
+      if (overlapX && overlapY && overlapZ) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    const dragDropEnabled = document.getElementById('enableDragDrop')?.checked ?? true;
+    const found = findCaseAt(canvasX, canvasY);
+    
+    if (found && e.button === 2 && dragDropEnabled) { // Right click - rotate
+      e.preventDefault();
+      selectedCase = found.case;
+      rotateCase(selectedCase);
+      return;
+    }
+    
+    if (found && e.button === 0 && dragDropEnabled) { // Left click with drag-drop enabled
+      // Start dragging a case
+      draggedCase = found.case;
+      selectedCase = found.case;
+      currentView = document.querySelector('input[name="view"]:checked').value;
+      
+      const truckCoords = canvasToTruck(canvasX, canvasY);
+      if (currentView === 'top') {
+        dragOffsetX = truckCoords.x - draggedCase.x;
+        dragOffsetY = truckCoords.y - draggedCase.y;
+      } else if (currentView === 'side') {
+        dragOffsetX = truckCoords.x - draggedCase.x;
+        dragOffsetY = truckCoords.z - draggedCase.z;
+      } else { // front
+        dragOffsetX = truckCoords.y - draggedCase.y;
+        dragOffsetY = truckCoords.z - draggedCase.z;
+      }
+      
+      isDragging = true;
+      canvas.style.cursor = 'grabbing';
+    } else if (e.button === 0) {
+      // Deselect if clicking empty space
+      if (!found) {
+        selectedCase = null;
+        updateVisualization();
+      }
+      // Start panning
+      panning = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      canvas.style.cursor = 'move';
+    }
   });
   
-  window.addEventListener('mouseup',()=>{ 
-    dragging=false; 
+  // Prevent context menu on right click
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
   });
   
-  window.addEventListener('mousemove',(e)=>{
-    if(!dragging) return;
-    const dx=e.clientX-lastX, dy=e.clientY-lastY; 
-    lastX=e.clientX; 
-    lastY=e.clientY;
-    // pan in pixels
-    viewState.panX += dx;
-    viewState.panY += dy;
-    updateVisualization();
+  window.addEventListener('mouseup', () => {
+    if (isDragging && draggedCase) {
+      debugLog(`Moved ${draggedCase.caseType} to position (${draggedCase.x.toFixed(1)}, ${draggedCase.y.toFixed(1)}, ${draggedCase.z.toFixed(1)})`);
+    }
+    isDragging = false;
+    panning = false;
+    draggedCase = null;
+    canvas.style.cursor = 'default';
   });
   
-  canvas.addEventListener('wheel',(e)=>{
+  window.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    if (isDragging && draggedCase) {
+      const L = +document.getElementById('truckLength').value;
+      const W = +document.getElementById('truckWidth').value;
+      const H = +document.getElementById('truckHeight').value;
+      
+      const truckCoords = canvasToTruck(canvasX, canvasY);
+      let targetX = draggedCase.x;
+      let targetY = draggedCase.y;
+      let targetZ = draggedCase.z;
+      
+      if (currentView === 'top') {
+        targetX = Math.max(0, Math.min(L - draggedCase.width, truckCoords.x - dragOffsetX));
+        targetY = Math.max(0, Math.min(W - draggedCase.length, truckCoords.y - dragOffsetY));
+      } else if (currentView === 'side') {
+        targetX = Math.max(0, Math.min(L - draggedCase.width, truckCoords.x - dragOffsetX));
+        targetZ = Math.max(0, Math.min(H - draggedCase.height, truckCoords.z - dragOffsetY));
+      } else { // front
+        targetY = Math.max(0, Math.min(W - draggedCase.length, truckCoords.y - dragOffsetX));
+        targetZ = Math.max(0, Math.min(H - draggedCase.height, truckCoords.z - dragOffsetY));
+      }
+      
+      // Apply snapping
+      const snapped = findSnapPosition(draggedCase, targetX, targetY, targetZ);
+      
+      // Check for collisions with the snapped position
+      if (!wouldCollide(draggedCase, snapped.x, snapped.y, snapped.z)) {
+        draggedCase.x = snapped.x;
+        draggedCase.y = snapped.y;
+        draggedCase.z = snapped.z;
+      }
+      
+      updateVisualization();
+    } else if (panning) {
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      viewState.panX += dx;
+      viewState.panY += dy;
+      updateVisualization();
+    } else {
+      // Update cursor based on hover
+      const dragDropEnabled = document.getElementById('enableDragDrop')?.checked ?? true;
+      const found = findCaseAt(canvasX, canvasY);
+      canvas.style.cursor = (found && dragDropEnabled) ? 'grab' : 'default';
+    }
+  });
+  
+  canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const z = +document.getElementById('zoomSlider').value;
-    const delta = -Math.sign(e.deltaY)*0.1;
+    const delta = -Math.sign(e.deltaY) * 0.1;
     let nz = Math.max(0.1, Math.min(5, z + delta));
     document.getElementById('zoomSlider').value = nz.toFixed(1);
-    document.getElementById('zoomValue').textContent = nz.toFixed(1)+'x';
+    document.getElementById('zoomValue').textContent = nz.toFixed(1) + 'x';
     updateVisualization();
-  }, {passive:false});
+  }, { passive: false });
+  
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e) => {
+    const dragDropEnabled = document.getElementById('enableDragDrop')?.checked ?? true;
+    if (!dragDropEnabled) return;
+    
+    // R key to rotate selected/dragged case
+    if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault();
+      rotateSelectedCase();
+    }
+    
+    // ESC to deselect
+    if (e.key === 'Escape') {
+      selectedCase = null;
+      updateVisualization();
+    }
+  });
 })();
 
 // ===== Stats / Export =====
