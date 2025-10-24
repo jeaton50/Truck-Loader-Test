@@ -1944,7 +1944,7 @@ function initApp(){
 
 window.addEventListener('load', initApp);
 
-// === Pretty Statistics Card (non-destructive to existing updateStatistics) ===
+// === Enhanced Statistics Card with Detailed Breakdowns ===
 function renderStatisticsCard(){
   const container=document.getElementById('statisticsContent');
   if(!currentPacking.length){
@@ -1953,73 +1953,222 @@ function renderStatisticsCard(){
   }
   const L=+document.getElementById('truckLength').value, W=+document.getElementById('truckWidth').value, H=+document.getElementById('truckHeight').value;
   const truckVol=L*W*H;
+  const truckProfile = document.getElementById('truckProfile').value;
+  const truckMaxWeight = truckProfiles.find(t => t.name === truckProfile)?.maxWeight || 0;
+  
   const req = caseLoads.reduce((s,l)=>s+l.quantity,0);
   const tot = currentPacking.length;
   let packedVol=0, weight=0;
   currentPacking.forEach(c=>{ packedVol += c.width*c.length*c.height; if(c.caseProfile) weight += c.caseProfile.weight; });
   const util = truckVol? (packedVol/truckVol*100):0;
   const success = req? (tot/req*100) : 0;
+  const emptyVol = truckVol - packedVol;
+  const weightUtil = truckMaxWeight > 0 ? (weight/truckMaxWeight*100) : 0;
 
+  // Detailed breakdown by case type
   const byType = new Map();
   for(const load of caseLoads){
-    byType.set(load.profile.name, {profile:load.profile, requested:load.quantity, packed:0});
+    byType.set(load.profile.name, {
+      profile: load.profile, 
+      requested: load.quantity, 
+      packed: 0,
+      weight: 0,
+      volume: 0,
+      globalStack: load.globalStack
+    });
   }
   for(const c of currentPacking){
-    const v = byType.get(c.caseType) || {profile:c.caseProfile, requested:0, packed:0};
-    v.packed += 1; byType.set(c.caseType, v);
+    const v = byType.get(c.caseType) || {
+      profile: c.caseProfile, 
+      requested: 0, 
+      packed: 0, 
+      weight: 0, 
+      volume: 0,
+      globalStack: 0
+    };
+    v.packed += 1;
+    v.weight += c.caseProfile?.weight || 0;
+    v.volume += c.width * c.length * c.height;
+    byType.set(c.caseType, v);
   }
+
+  // Count rotated cases
+  const rotatedCases = currentPacking.filter(c => c.rotation === 90).length;
+  const normalCases = currentPacking.filter(c => c.rotation === 0).length;
+  const freestackCases = currentPacking.filter(c => c.isFreestack).length;
+  const regularCases = tot - freestackCases;
+
+  // Calculate average dimensions
+  let avgWidth = 0, avgLength = 0, avgHeight = 0;
+  currentPacking.forEach(c => {
+    avgWidth += c.width;
+    avgLength += c.length;
+    avgHeight += c.height;
+  });
+  if (tot > 0) {
+    avgWidth /= tot;
+    avgLength /= tot;
+    avgHeight /= tot;
+  }
+
+  // Build detailed case rows
   const rows = [];
   byType.forEach((v,name)=>{
-    const p=v.profile;
-    const pct = v.requested? Math.round(v.packed/v.requested*100) : 0;
-    const tag = p.freestack ? '[F]' : '[R]';
+    const p = v.profile;
+    const pct = v.requested ? Math.round(v.packed/v.requested*100) : 0;
+    const tag = p.freestack ? '<span style="color:#a855f7">⬡FS</span>' : '<span style="color:#2563eb">■REG</span>';
     const dims = `${(+p.side1).toFixed(1)}×${(+p.side2).toFixed(1)}×${(+p.height).toFixed(1)}"`;
-    rows.push(`<div class="case-row"><div><b>${tag}</b> ${name} <span class="dim">(Stk:${p.maxStack})</span><div class="dim">${dims}</div></div><div><b>${v.packed}/${v.requested}</b> (${pct}%)</div></div>`);
+    const caseVol = (+p.side1) * (+p.side2) * (+p.height);
+    const weightPerCase = +p.weight || 0;
+    const volUtil = v.volume > 0 ? ((v.volume / caseVol / v.packed) * 100).toFixed(0) : 100;
+    
+    rows.push(`
+      <div class="case-row" style="border-top:1px solid #e5e7eb;padding:10px 0;margin:0">
+        <div style="margin-bottom:4px">
+          ${tag} <b>${name}</b>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;color:#64748b">
+          <div>
+            <div><b style="color:#111827">${v.packed}/${v.requested}</b> cases (${pct}%)</div>
+            <div>Dims: ${dims}</div>
+            <div>Stack: Max ${p.maxStack} | Global ${v.globalStack}</div>
+          </div>
+          <div>
+            <div><b style="color:#111827">${v.weight.toFixed(1)} lbs</b> total</div>
+            <div>${weightPerCase.toFixed(1)} lbs/case</div>
+            <div>${v.volume.toLocaleString()} in³ volume</div>
+          </div>
+        </div>
+      </div>
+    `);
   });
 
-  const left = `
+  // Overall Summary Section
+  const overallSummary = `
     <div class="stats-block">
-      <h4>OVERALL SUMMARY</h4>
-      <div class="kv"><span>Success Rate:</span><b>${success.toFixed(1)}% (${tot}/${req})</b></div>
-      <div class="kv"><span>Space Utilization:</span><b>${util.toFixed(1)}%</b></div>
-      <div class="kv"><span>Total Weight:</span><b>${weight.toFixed(1)} lbs</b></div>
-      <div class="smallnote">Truck Volume: ${truckVol.toLocaleString()} in³ • Used: ${packedVol.toLocaleString()} in³</div>
+      <h4>📊 OVERALL SUMMARY</h4>
+      <div class="kv"><span>Success Rate:</span><b>${success.toFixed(1)}%</b> <span class="dim">(${tot}/${req} cases)</span></div>
+      <div class="kv"><span>Space Utilization:</span><b>${util.toFixed(1)}%</b> <span class="dim">(${packedVol.toLocaleString()} / ${truckVol.toLocaleString()} in³)</span></div>
+      <div class="kv"><span>Empty Space:</span><b>${emptyVol.toLocaleString()} in³</b> <span class="dim">(${(100-util).toFixed(1)}% unused)</span></div>
     </div>`;
 
-  const right = `
+  // Weight & Dimensions Section
+  const weightSection = `
     <div class="stats-block">
-      <h4>BY CASE TYPE</h4>
-      ${rows.join('') || '<div class="dim">No cases</div>'}
+      <h4>⚖️ WEIGHT & DIMENSIONS</h4>
+      <div class="kv"><span>Total Weight:</span><b>${weight.toFixed(1)} lbs</b></div>
+      ${truckMaxWeight > 0 ? `<div class="kv"><span>Weight Capacity:</span><b>${weightUtil.toFixed(1)}%</b> <span class="dim">(${truckMaxWeight} lbs max)</span></div>` : ''}
+      <div class="kv"><span>Avg Case Weight:</span><b>${tot > 0 ? (weight/tot).toFixed(1) : 0} lbs</b></div>
+      <div class="smallnote" style="margin-top:8px">
+        <b>Avg Case Dimensions:</b><br>
+        ${avgWidth.toFixed(1)}" W × ${avgLength.toFixed(1)}" L × ${avgHeight.toFixed(1)}" H
+      </div>
+    </div>`;
+
+  // Case Type Distribution
+  const distributionSection = `
+    <div class="stats-block">
+      <h4>📦 CASE DISTRIBUTION</h4>
+      <div class="kv"><span>Regular Cases:</span><b>${regularCases}</b> <span class="dim">(${tot > 0 ? (regularCases/tot*100).toFixed(1) : 0}%)</span></div>
+      <div class="kv"><span>Freestack Cases:</span><b>${freestackCases}</b> <span class="dim">(${tot > 0 ? (freestackCases/tot*100).toFixed(1) : 0}%)</span></div>
+      <div class="kv"><span>Normal Orientation:</span><b>${normalCases}</b> <span class="dim">(0°)</span></div>
+      <div class="kv"><span>Rotated 90°:</span><b>${rotatedCases}</b> <span class="dim">(${tot > 0 ? (rotatedCases/tot*100).toFixed(1) : 0}%)</span></div>
+    </div>`;
+
+  // Efficiency Metrics
+  const efficiencySection = `
+    <div class="stats-block">
+      <h4>📈 EFFICIENCY METRICS</h4>
+      <div class="kv"><span>Cases per ft³:</span><b>${(tot / (truckVol/1728)).toFixed(2)}</b></div>
+      <div class="kv"><span>Weight per ft³:</span><b>${(weight / (truckVol/1728)).toFixed(1)} lbs</b></div>
+      <div class="kv"><span>Avg Volume per Case:</span><b>${tot > 0 ? (packedVol/tot).toFixed(0) : 0} in³</b></div>
+      <div class="kv"><span>Volume Efficiency:</span><b>${tot > 0 ? ((packedVol/tot) / (truckVol/req) * 100).toFixed(1) : 0}%</b></div>
+    </div>`;
+
+  // Detailed Case Breakdown
+  const caseDetails = `
+    <div class="stats-block" style="grid-column:1/-1">
+      <h4>📋 DETAILED BREAKDOWN BY CASE TYPE</h4>
+      ${rows.join('') || '<div class="dim">No cases packed</div>'}
     </div>`;
 
   container.innerHTML = `
     <div class="stats-card">
-      <div class="stats-top"><div>Length: ${L.toFixed(1)} in</div><div><b>Loaded: ${tot} / ${req} cases</b></div></div>
+      <div class="stats-top">
+        <div><b>Truck:</b> ${truckProfile}</div>
+        <div><b>Loaded:</b> ${tot} / ${req} cases</div>
+      </div>
       <div class="stats-title">PACKING STATISTICS</div>
-      <div class="stats-grid">${left}${right}</div>
+      <div class="smallnote" style="text-align:center;margin-bottom:12px">
+        Truck Dimensions: ${L.toFixed(1)}L × ${W.toFixed(1)}W × ${H.toFixed(1)}H inches
+      </div>
+      <div class="stats-grid">
+        ${overallSummary}
+        ${weightSection}
+        ${distributionSection}
+        ${efficiencySection}
+        ${caseDetails}
+      </div>
     </div>`;
 
-  // Plain-text string for Export TXT
+  // Enhanced plain-text export
   window.__statsText = [
-    'PACKING STATISTICS',
+    'PACKING STATISTICS - DETAILED REPORT',
     '==========================================',
     '',
-    `Truck: ${document.getElementById('truckProfile').value}`,
-    `Dims: ${L}L × ${W}W × ${H}H`,
+    `Truck: ${truckProfile}`,
+    `Dimensions: ${L}L × ${W}W × ${H}H inches`,
     `Volume: ${truckVol.toLocaleString()} in³`,
+    truckMaxWeight > 0 ? `Max Weight: ${truckMaxWeight} lbs` : '',
     '',
-    'SUMMARY',
+    'OVERALL SUMMARY',
     '------------------------------------------',
-    `Requested: ${req} cases`,
-    `Packed:    ${tot} cases (${req? (tot/req*100).toFixed(1):'0.0'}%)`,
-    `Utilization: ${util.toFixed(1)}%`,
-    `Used Volume: ${packedVol.toLocaleString()} in³`,
-    `Empty Vol.: ${(truckVol-packedVol).toLocaleString()} in³`,
-    `Total Weight: ${weight.toFixed(1)} lbs`,
+    `Requested:       ${req} cases`,
+    `Packed:          ${tot} cases (${success.toFixed(1)}%)`,
+    `Success Rate:    ${success.toFixed(1)}%`,
     '',
-    'Per Type:',
-    ...Array.from(byType.entries()).map(([name,v])=>`  - ${name}: ${v.packed}/${v.requested} (${v.requested? (v.packed/v.requested*100).toFixed(1):'0.0'}%)`)
-  ].join('\n');
+    'SPACE UTILIZATION',
+    '------------------------------------------',
+    `Space Used:      ${packedVol.toLocaleString()} in³ (${util.toFixed(1)}%)`,
+    `Space Empty:     ${emptyVol.toLocaleString()} in³ (${(100-util).toFixed(1)}%)`,
+    `Truck Volume:    ${truckVol.toLocaleString()} in³`,
+    '',
+    'WEIGHT ANALYSIS',
+    '------------------------------------------',
+    `Total Weight:    ${weight.toFixed(1)} lbs`,
+    truckMaxWeight > 0 ? `Weight Capacity: ${weightUtil.toFixed(1)}% (${truckMaxWeight} lbs max)` : '',
+    `Avg per Case:    ${tot > 0 ? (weight/tot).toFixed(1) : 0} lbs`,
+    '',
+    'CASE DISTRIBUTION',
+    '------------------------------------------',
+    `Regular Cases:   ${regularCases} (${tot > 0 ? (regularCases/tot*100).toFixed(1) : 0}%)`,
+    `Freestack Cases: ${freestackCases} (${tot > 0 ? (freestackCases/tot*100).toFixed(1) : 0}%)`,
+    `Normal (0°):     ${normalCases}`,
+    `Rotated (90°):   ${rotatedCases}`,
+    '',
+    'EFFICIENCY METRICS',
+    '------------------------------------------',
+    `Cases per ft³:   ${(tot / (truckVol/1728)).toFixed(2)}`,
+    `Weight per ft³:  ${(weight / (truckVol/1728)).toFixed(1)} lbs`,
+    `Avg Volume/Case: ${tot > 0 ? (packedVol/tot).toFixed(0) : 0} in³`,
+    '',
+    'DETAILED BREAKDOWN BY CASE TYPE',
+    '------------------------------------------',
+    ...Array.from(byType.entries()).map(([name,v])=>{
+      const p = v.profile;
+      const pct = v.requested ? (v.packed/v.requested*100).toFixed(1) : 0;
+      const dims = `${(+p.side1).toFixed(1)}×${(+p.side2).toFixed(1)}×${(+p.height).toFixed(1)}"`;
+      const tag = p.freestack ? '[FREESTACK]' : '[REGULAR]';
+      return [
+        `\n${tag} ${name}`,
+        `  Packed:     ${v.packed}/${v.requested} (${pct}%)`,
+        `  Dimensions: ${dims}`,
+        `  Stack:      Max ${p.maxStack} | Global ${v.globalStack}`,
+        `  Weight:     ${v.weight.toFixed(1)} lbs total (${(+p.weight).toFixed(1)} lbs/case)`,
+        `  Volume:     ${v.volume.toLocaleString()} in³`
+      ].join('\n');
+    })
+  ].filter(line => line).join('\n');
 }
 
 function printStatsCard(){
