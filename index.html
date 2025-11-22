@@ -1896,9 +1896,9 @@ function setupCanvas(){
 
   function resize(){
     const r=parent.getBoundingClientRect();
-    // Make canvas responsive - expanded 30% wider
-    c.width=Math.min(Math.max(780, r.width-20), 1820);
-    c.height=Math.min(Math.max(400, r.height-20), 900);
+    // Make canvas responsive - expanded 50% from original
+    c.width=Math.min(Math.max(1170, r.width-20), 2730);
+    c.height=Math.min(Math.max(600, r.height-20), 1350);
     updateVisualization();
   }
 
