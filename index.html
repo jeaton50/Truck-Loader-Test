@@ -229,6 +229,33 @@
 </div>
 
 <script>
+// ===== Configuration Constants =====
+const CONFIG = {
+  // Canvas and visualization
+  CANVAS_PADDING: 20,
+  SNAP_DISTANCE: 8, // Snap within 8 inches
+  DEFAULT_ZOOM: 1.2,
+
+  // Performance limits
+  MAX_POSITIONS: 2000, // Max frontier positions in smart pack
+  PACK_TIMEOUT_MS: 30000, // 30 second timeout for packing algorithms
+
+  // Grid packing
+  MIN_STEP_SIZE: 4, // Minimum step size for grid scanning
+  GRID_STEP_DIVISOR: 2, // Divide smallest case dimension by this for step size
+  GRID_STEP_DIVISOR_ALT: 4, // Alternative divisor for finer scanning
+
+  // Freestack
+  MIN_SURFACE_SIZE: 6, // Minimum surface dimension for freestack placement
+  GRID_RESOLUTION: 1.0, // Resolution for surface grid
+
+  // Statistics display
+  MAX_CASE_TYPES_DISPLAY: 4, // Max case types shown on canvas
+
+  // Epsilon for floating point comparison
+  EPSILON: 1e-6
+};
+
 // ===== Global state & models =====
 let truckProfiles = [];
 let caseProfiles = [];
@@ -236,7 +263,7 @@ let caseLoads = [];
 let currentPacking = [];
 let selectedCaseIndex = -1;
 let scale = 1.0;
-const canvasPadding = 20;
+const canvasPadding = CONFIG.CANVAS_PADDING;
 
 // Drag and drop state
 let draggedCase = null;
@@ -245,9 +272,32 @@ let dragOffsetY = 0;
 let isDragging = false;
 let currentView = 'top';
 let selectedCase = null; // Track selected case for rotation
-const snapDistance = 8; // Snap within 8 inches
+const snapDistance = CONFIG.SNAP_DISTANCE;
 
 const defaultColors = ['#3498db','#2ecc71','#e74c3c','#f39c12','#9b59b6','#1abc9c','#34495e','#e67e22','#95a5a6','#d35400'];
+
+// Cache for filtered case profiles to avoid redundant filtering
+let _filteredCasesCache = null;
+let _lastProductType = null;
+
+// Helper to get filtered cases (with caching)
+function getFilteredCases(){
+  const selectedProduct = document.getElementById('productType').value;
+  if(_lastProductType === selectedProduct && _filteredCasesCache !== null){
+    return _filteredCasesCache;
+  }
+  _lastProductType = selectedProduct;
+  _filteredCasesCache = selectedProduct
+    ? caseProfiles.filter(c => c.productType === selectedProduct)
+    : caseProfiles;
+  return _filteredCasesCache;
+}
+
+// Invalidate cache when profiles change
+function invalidateFilterCache(){
+  _filteredCasesCache = null;
+  _lastProductType = null;
+}
 
 // Data classes
 class TruckProfile{ constructor(name,length,width,height,maxWeight=0){ Object.assign(this,{name,length,width,height,maxWeight}); } }
@@ -260,7 +310,11 @@ function debugLog(msg){ const t=new Date().toTimeString().split(' ')[0]; const e
 function updateStatusBar(t){ document.getElementById('statusBar').textContent = t; }
 
 // ===== Storage =====
-function saveProfiles(){ localStorage.setItem('truckProfiles', JSON.stringify(truckProfiles)); localStorage.setItem('caseProfiles', JSON.stringify(caseProfiles)); }
+function saveProfiles(){
+  localStorage.setItem('truckProfiles', JSON.stringify(truckProfiles));
+  localStorage.setItem('caseProfiles', JSON.stringify(caseProfiles));
+  invalidateFilterCache(); // Clear cache when profiles change
+}
 function loadProfiles(){
   try{ const t=JSON.parse(localStorage.getItem('truckProfiles')||'null'); if(t){ truckProfiles = t.map(v=>new TruckProfile(v.name,+v.length,+v.width,+v.height,+v.maxWeight)); } }catch(e){}
   try{ const c=JSON.parse(localStorage.getItem('caseProfiles')||'null'); if(c){ caseProfiles = c.map(v=>new CaseProfile(v.name,+v.side1,+v.side2,+v.height,+v.weight,!!v.fragile,!!v.freestack,+v.maxStack,v.color||'#3498db', v.productType||'')); } }catch(e){}
@@ -345,35 +399,36 @@ function createDefaultProfiles(){
 function filterCaseProfiles(){
   const selectedProduct = document.getElementById('productType').value;
   const cSel = document.getElementById('caseProfile');
-  
+
   debugLog(`Filtering cases for product: "${selectedProduct}"`);
   debugLog(`Total case profiles available: ${caseProfiles.length}`);
-  
+
   cSel.innerHTML = '';
-  
-  const filteredCases = selectedProduct
-    ? caseProfiles.filter(c => c.productType === selectedProduct)
-    : caseProfiles;
-    
+
+  const filteredCases = getFilteredCases(); // Use cached version
+
   debugLog(`Filtered cases found: ${filteredCases.length}`);
   filteredCases.forEach((c, index) => {
     debugLog(`  ${index + 1}. ${c.name} (${c.productType || 'no product type'})`);
   });
-    
+
+  // Use DocumentFragment for better performance
+  const fragment = document.createDocumentFragment();
   filteredCases.forEach(c => {
     const o = document.createElement('option');
     o.value = c.name;
     o.textContent = c.name;
-    cSel.appendChild(o);
+    fragment.appendChild(o);
   });
-  
+  cSel.appendChild(fragment);
+
   if(filteredCases.length){
     cSel.selectedIndex = 0;
     updateCaseInfo();
   } else {
     debugLog('No cases found for selected product type');
   }
-  
+
   // Update legend to show only filtered cases
   renderLegend();
 }
@@ -429,23 +484,23 @@ function updateCaseInfo(){
   } 
 }
 
-function renderLegend(){ 
-  const el=document.getElementById('legend'); 
-  el.innerHTML=''; 
-  const selectedProduct = document.getElementById('productType').value;
-  const filteredCases = selectedProduct
-    ? caseProfiles.filter(c => c.productType === selectedProduct)
-    : caseProfiles;
-    
-  filteredCases.forEach(c=>{ 
-    const it=document.createElement('div'); 
-    const sw=document.createElement('span'); 
-    sw.className='sw'; 
-    sw.style.background=c.color; 
-    it.appendChild(sw); 
-    it.appendChild(document.createTextNode(c.name)); 
-    el.appendChild(it); 
-  }); 
+function renderLegend(){
+  const el=document.getElementById('legend');
+  el.innerHTML='';
+  const filteredCases = getFilteredCases(); // Use cached version
+
+  // Use DocumentFragment for better performance
+  const fragment = document.createDocumentFragment();
+  filteredCases.forEach(c=>{
+    const it=document.createElement('div');
+    const sw=document.createElement('span');
+    sw.className='sw';
+    sw.style.background=c.color;
+    it.appendChild(sw);
+    it.appendChild(document.createTextNode(c.name));
+    fragment.appendChild(it);
+  });
+  el.appendChild(fragment);
 }
 
 // ===== Load list =====
@@ -469,45 +524,62 @@ function updateCaseList(){
   renderLegend();
 }
 
-function addCaseToLoad(){ 
-  const name=document.getElementById('caseProfile').value; 
-  const qty=+document.getElementById('caseQuantity').value; 
+function addCaseToLoad(){
+  const name=document.getElementById('caseProfile').value;
+  const qty=+document.getElementById('caseQuantity').value;
   const globalStack=+document.getElementById('globalStack').value || 99;
-  const p=caseProfiles.find(v=>v.name===name); 
-  if(!p||!(qty>0)) return alert('Select a case and valid quantity'); 
-  caseLoads.push(new CaseLoad(p,qty,globalStack)); 
-  debugLog(`Added ${qty} × ${name} (Global Stack: ${globalStack})`); 
-  updateCaseList(); 
+
+  // Validate inputs
+  if(!name){
+    alert('Please select a case profile');
+    return;
+  }
+  if(!qty || qty <= 0 || !Number.isInteger(qty)){
+    alert('Please enter a valid positive integer quantity');
+    return;
+  }
+  if(qty > 10000){
+    alert('Quantity too large (max 10,000)');
+    return;
+  }
+  if(globalStack < 1 || globalStack > 100){
+    alert('Global stack must be between 1 and 100');
+    return;
+  }
+
+  const p=caseProfiles.find(v=>v.name===name);
+  if(!p){
+    alert('Case profile not found');
+    return;
+  }
+
+  caseLoads.push(new CaseLoad(p,qty,globalStack));
+  debugLog(`Added ${qty} × ${name} (Global Stack: ${globalStack})`);
+  updateCaseList();
 }
 
-function addTestLoad(){ 
-  caseLoads=[]; 
+function addTestLoad(){
+  caseLoads=[];
   const globalStack=+document.getElementById('globalStack').value || 99;
-  const selectedProduct = document.getElementById('productType').value;
-  const filteredCases = selectedProduct
-    ? caseProfiles.filter(c => c.productType === selectedProduct)
-    : caseProfiles;
-    
+  const filteredCases = getFilteredCases(); // Use cached version
+
   if(filteredCases.length >= 1) caseLoads.push(new CaseLoad(filteredCases[0], 8, globalStack));
   if(filteredCases.length >= 2) caseLoads.push(new CaseLoad(filteredCases[1], 4, globalStack));
   if(filteredCases.length >= 3) caseLoads.push(new CaseLoad(filteredCases[2], 3, globalStack));
-  
-  updateCaseList(); 
-  debugLog('Added test load'); 
+
+  updateCaseList();
+  debugLog('Added test load');
 }
 
-function quickTest(){ 
-  caseLoads=[]; 
+function quickTest(){
+  caseLoads=[];
   const globalStack=+document.getElementById('globalStack').value || 99;
-  const selectedProduct = document.getElementById('productType').value;
-  const filteredCases = selectedProduct
-    ? caseProfiles.filter(c => c.productType === selectedProduct)
-    : caseProfiles;
-    
+  const filteredCases = getFilteredCases(); // Use cached version
+
   if(filteredCases.length >= 1) caseLoads.push(new CaseLoad(filteredCases[0], 5, globalStack));
-  
-  updateCaseList(); 
-  packAndVisualize(); 
+
+  updateCaseList();
+  packAndVisualize();
 }
 
 function removeSelectedCase(){ 
@@ -525,11 +597,19 @@ function clearAllCases(){
 }
 
 // ===== Math helpers (ported from Python) =====
-const EPS=1e-6;
+const EPS=CONFIG.EPSILON;
 function eq(a,b,eps=EPS){ return Math.abs(a-b)<eps; }
+
+// Optimized collision detection - checks if space is free from obstructions
 function isSpaceFree(arr,x,y,z,w,l,h){
+  const x2 = x + w, y2 = y + l, z2 = z + h;
   for(const c of arr){
-    if(!((x+w)<=c.x || x>=(c.x+c.width) || (y+l)<=c.y || y>=(c.y+c.length) || (z+h)<=c.z || z>=(c.z+c.height))){ return false; }
+    // Quick boundary check - exit early if no overlap
+    if(x2 <= c.x || x >= (c.x + c.width)) continue;
+    if(y2 <= c.y || y >= (c.y + c.length)) continue;
+    if(z2 <= c.z || z >= (c.z + c.height)) continue;
+    // Collision detected
+    return false;
   }
   return true;
 }
@@ -564,7 +644,7 @@ function findFreestackSurfaces(arr,L,W,H){
     const maxX = Math.max(...surfaces.map(s=>s.x+s.width));
     const minY = Math.min(...surfaces.map(s=>s.y));
     const maxY = Math.max(...surfaces.map(s=>s.y+s.length));
-    const gridRes = 1.0;
+    const gridRes = CONFIG.GRID_RESOLUTION;
     const gw = Math.floor((maxX-minX)/gridRes)+1;
     const gl = Math.floor((maxY-minY)/gridRes)+1;
     const grid = Array.from({length:gw},()=>Array(gl).fill(false));
@@ -595,7 +675,7 @@ function findFreestackSurfaces(arr,L,W,H){
           const regionY = minY + j*gridRes;
           const regionW = rW*gridRes;
           const regionL = rL*gridRes;
-          if(regionW >= 6 && regionL >= 6){
+          if(regionW >= CONFIG.MIN_SURFACE_SIZE && regionL >= CONFIG.MIN_SURFACE_SIZE){
             merged.push({x:regionX, y:regionY, z:zLevel, width:regionW, length:regionL, available_height: H - zLevel});
           }
         }
@@ -760,52 +840,28 @@ function packAndVisualize(){
 
 function allowedStackFor(load,H){ return Math.max(1, Math.min(load.profile.maxStack, Math.floor(H / load.profile.height), load.globalStack)); }
 
-// Smart pack: available position frontier
-function smartPack(L,W,H){
-  const out=[]; const toPack=[];
-  for(const load of caseLoads){ if(!load.profile.freestack){ for(let i=0;i<load.quantity;i++) toPack.push(load); } }
-  if(!toPack.length) return out;
-  toPack.sort((a,b)=> (b.profile.side1*b.profile.side2*b.profile.height) - (a.profile.side1*a.profile.side2*a.profile.height));
-  let positions = [[0,0,0]];
-  const t0 = performance.now();
-  for(const load of toPack){
-    if(performance.now()-t0 > 30000){ debugLog('Timeout in smart pack'); break; }
-    const p=load.profile; const allowed = allowedStackFor(load,H);
-    let best=null;
-    for(const [w,l,rot] of [[p.side1,p.side2,0],[p.side2,p.side1,90]]){
-      if(w>L||l>W||p.height>H) continue;
-      for(const [x,y,z] of positions){
-        if(x+w<=L && y+l<=W && z+p.height<=H){
-          if(isSpaceFree(out,x,y,z,w,l,p.height) && canPlaceWithLikeStack(out,x,y,z,w,l,p.name,allowed)){ best=[x,y,z,w,l,rot]; break; }
-        }
-      }
-      if(best) break;
-    }
-    if(best){
-      const [x,y,z,w,l,rot]=best;
-      out.push(new PackedCase(x,y,z,w,l,p.height, (p.height>0? Math.floor(z/p.height)+1:1), rot===0?'normal':'rotated', p.name, rot, p, false));
-      load.packedCount += 1;
-      for(const pos of [[x+w,y,z],[x,y+l,z],[x,y,z+p.height]]){
-        const [px,py,pz]=pos; if(px<L && py<W && pz<H && !positions.some(q=> q[0]===px && q[1]===py && q[2]===pz)) positions.push(pos);
-      }
-      positions = positions.filter(v=> !(v[0]===x && v[1]===y && v[2]===z)).sort((a,b)=> a[2]-b[2] || a[1]-b[1] || a[0]-b[0]);
-      if(positions.length>2000) positions = positions.slice(0,2000);
+// Helper to build toPack array for packing algorithms
+function buildToPackArray(){
+  const toPack = [];
+  for(const load of caseLoads){
+    if(!load.profile.freestack){
+      for(let i=0; i<load.quantity; i++) toPack.push(load);
     }
   }
-  return out;
+  // Sort by volume (largest first)
+  toPack.sort((a,b)=> (b.profile.side1*b.profile.side2*b.profile.height) - (a.profile.side1*a.profile.side2*a.profile.height));
+  return toPack;
 }
 
-// Grid pack: step scanning + stacking constraint
-// 2. Modify the smartPack function to support Force Max Stack:
+// Smart pack: available position frontier with Force Max Stack support
 
 function smartPack(L,W,H){
   const forceMaxStack = document.getElementById('forceMaxStack');
   const useForceMaxStack = forceMaxStack ? forceMaxStack.checked : false;
-  
-  const out=[]; const toPack=[];
-  for(const load of caseLoads){ if(!load.profile.freestack){ for(let i=0;i<load.quantity;i++) toPack.push(load); } }
+
+  const out=[];
+  const toPack = buildToPackArray();
   if(!toPack.length) return out;
-  toPack.sort((a,b)=> (b.profile.side1*b.profile.side2*b.profile.height) - (a.profile.side1*a.profile.side2*a.profile.height));
   
   // Group by case type for Force Max Stack
   if(useForceMaxStack){
@@ -849,8 +905,8 @@ function smartPack(L,W,H){
             placed = true;
           } else {
             // Find new position
-            for(let x=0; x+w<=L && !placed; x+=Math.max(4,w/4)){
-              for(let y=0; y+l<=W && !placed; y+=Math.max(4,l/4)){
+            for(let x=0; x+w<=L && !placed; x+=Math.max(CONFIG.MIN_STEP_SIZE,w/CONFIG.GRID_STEP_DIVISOR_ALT)){
+              for(let y=0; y+l<=W && !placed; y+=Math.max(CONFIG.MIN_STEP_SIZE,l/CONFIG.GRID_STEP_DIVISOR_ALT)){
                 if(isSpaceFree(out,x,y,0,w,l,p.height)){
                   out.push(new PackedCase(x,y,0,w,l,p.height,1,rot===0?'normal':'rotated',p.name,rot,p,false));
                   load.packedCount += 1;
@@ -869,7 +925,7 @@ function smartPack(L,W,H){
   let positions = [[0,0,0]];
   const t0 = performance.now();
   for(const load of toPack){
-    if(performance.now()-t0 > 30000){ debugLog('Timeout in smart pack'); break; }
+    if(performance.now()-t0 > CONFIG.PACK_TIMEOUT_MS){ debugLog('Timeout in smart pack'); break; }
     const p=load.profile; const allowed = allowedStackFor(load,H);
     let best=null;
     for(const [w,l,rot] of [[p.side1,p.side2,0],[p.side2,p.side1,90]]){
@@ -889,7 +945,7 @@ function smartPack(L,W,H){
         const [px,py,pz]=pos; if(px<L && py<W && pz<H && !positions.some(q=> q[0]===px && q[1]===py && q[2]===pz)) positions.push(pos);
       }
       positions = positions.filter(v=> !(v[0]===x && v[1]===y && v[2]===z)).sort((a,b)=> a[2]-b[2] || a[1]-b[1] || a[0]-b[0]);
-      if(positions.length>2000) positions = positions.slice(0,2000);
+      if(positions.length>CONFIG.MAX_POSITIONS) positions = positions.slice(0,CONFIG.MAX_POSITIONS);
     }
   }
   return out;
@@ -898,18 +954,17 @@ function smartPack(L,W,H){
 function simpleGridPack(L,W,H){
   const forceMaxStack = document.getElementById('forceMaxStack');
   const useForceMaxStack = forceMaxStack ? forceMaxStack.checked : false;
-  
-  const out=[]; const toPack=[];
-  for(const load of caseLoads){ if(!load.profile.freestack){ for(let i=0;i<load.quantity;i++) toPack.push(load); } }
+
+  const out=[];
+  const toPack = buildToPackArray();
   if(!toPack.length) return out;
-  toPack.sort((a,b)=> (b.profile.side1*b.profile.side2*b.profile.height) - (a.profile.side1*a.profile.side2*a.profile.height));
   const minW = Math.min(...caseLoads.filter(l=>!l.profile.freestack).map(l=>l.profile.side1));
   const minL = Math.min(...caseLoads.filter(l=>!l.profile.freestack).map(l=>l.profile.side2));
-  const stepX = Math.max(4, minW/2), stepY = Math.max(4, minL/2);
+  const stepX = Math.max(CONFIG.MIN_STEP_SIZE, minW/CONFIG.GRID_STEP_DIVISOR), stepY = Math.max(CONFIG.MIN_STEP_SIZE, minL/CONFIG.GRID_STEP_DIVISOR);
   const t0 = performance.now();
-  
+
   for(const load of toPack){
-    if(performance.now()-t0 > 30000){ debugLog('Timeout in grid pack'); break; }
+    if(performance.now()-t0 > CONFIG.PACK_TIMEOUT_MS){ debugLog('Timeout in grid pack'); break; }
     const p=load.profile; const allowed = allowedStackFor(load,H);
     if(p.side1>L || p.side2>W || p.height>H) continue;
     let placed=false;
@@ -1109,9 +1164,9 @@ function edgeFillPass(arr,L,W,H){
     for(const [w,l,rot] of [[p.side1,p.side2,0],[p.side2,p.side1,90]]){
       // Right edge sweep
       let x = L - w; let y = 0;
-      while(y + l <= W && !placed){ placed = tryPlace(load,x,y,w,l,rot); y += Math.max(4, Math.min(w,l)/2); }
+      while(y + l <= W && !placed){ placed = tryPlace(load,x,y,w,l,rot); y += Math.max(CONFIG.MIN_STEP_SIZE, Math.min(w,l)/CONFIG.GRID_STEP_DIVISOR); }
       // Bottom edge sweep
-      if(!placed){ let y0 = W - l; let x0 = 0; while(x0 + w <= L && !placed){ placed = tryPlace(load,x0,y0,w,l,rot); x0 += Math.max(4, Math.min(w,l)/2); } }
+      if(!placed){ let y0 = W - l; let x0 = 0; while(x0 + w <= L && !placed){ placed = tryPlace(load,x0,y0,w,l,rot); x0 += Math.max(CONFIG.MIN_STEP_SIZE, Math.min(w,l)/CONFIG.GRID_STEP_DIVISOR); } }
       if(placed) break;
     }
   }
@@ -1282,7 +1337,7 @@ ctx.fillText(`${truckName} (${L}L × ${W}W × ${H}H)`, c.width/2, c.height - 50)
 ctx.fillStyle='#374151';
 ctx.font='10px Arial';
 let yPos = c.height - 30;
-const maxTypesToShow = 4; // Limit to prevent overcrowding
+const maxTypesToShow = CONFIG.MAX_CASE_TYPES_DISPLAY;
 let typeCount = 0;
 
 for(const [typeName, counts] of byType.entries()){
@@ -1381,9 +1436,9 @@ function fitView(){
 }
 
 function resetView(){
-  document.getElementById('zoomSlider').value = 1.2;
-  document.getElementById('zoomValue').textContent = '1.2x';
-  viewState.panX = 0; 
+  document.getElementById('zoomSlider').value = CONFIG.DEFAULT_ZOOM;
+  document.getElementById('zoomValue').textContent = CONFIG.DEFAULT_ZOOM + 'x';
+  viewState.panX = 0;
   viewState.panY = 0;
   updateVisualization();
 }
@@ -1799,32 +1854,54 @@ function showModal(title,html,onSave){
   document.getElementById('saveBtn').onclick=()=>{ onSave&&onSave(); m.remove(); }; 
 }
 
-function newTruckDialog(){ 
-  const html=`<div class='row'><label>Name</label><input id='t_name'></div><div class='row'><label>Length</label><input id='t_len' type='number'></div><div class='row'><label>Width</label><input id='t_wid' type='number'></div><div class='row'><label>Height</label><input id='t_hei' type='number'></div><div class='row'><label>Max Weight</label><input id='t_wgt' type='number'></div>`; 
-  showModal('New Truck',html,()=>{ 
-    const name=document.getElementById('t_name').value.trim(); 
-    const L=+document.getElementById('t_len').value, W=+document.getElementById('t_wid').value, H=+document.getElementById('t_hei').value, MW=+document.getElementById('t_wgt').value||0; 
-    if(!name||!(L>0&&W>0&&H>0)) return alert('Fill all fields'); 
-    truckProfiles.push(new TruckProfile(name,L,W,H,MW)); 
-    saveProfiles(); populateProfileDropdowns(); 
-    debugLog('Truck added: '+name); 
-  }); 
+function newTruckDialog(){
+  const html=`<div class='row'><label>Name</label><input id='t_name'></div><div class='row'><label>Length</label><input id='t_len' type='number' min='1'></div><div class='row'><label>Width</label><input id='t_wid' type='number' min='1'></div><div class='row'><label>Height</label><input id='t_hei' type='number' min='1'></div><div class='row'><label>Max Weight</label><input id='t_wgt' type='number' min='0'></div>`;
+  showModal('New Truck',html,()=>{
+    const name=document.getElementById('t_name').value.trim();
+    const L=+document.getElementById('t_len').value, W=+document.getElementById('t_wid').value, H=+document.getElementById('t_hei').value, MW=+document.getElementById('t_wgt').value||0;
+    if(!name){
+      alert('Please enter a truck name');
+      return;
+    }
+    if(truckProfiles.some(t => t.name === name)){
+      alert('A truck profile with this name already exists');
+      return;
+    }
+    if(!(L>0&&W>0&&H>0)){
+      alert('Length, width, and height must be greater than 0');
+      return;
+    }
+    if(L > 10000 || W > 10000 || H > 10000){
+      alert('Dimensions too large (max 10,000 inches)');
+      return;
+    }
+    truckProfiles.push(new TruckProfile(name,L,W,H,MW));
+    saveProfiles(); populateProfileDropdowns();
+    debugLog('Truck added: '+name);
+  });
 }
 
-function editTruckDialog(){ 
-  const sel=document.getElementById('truckProfile').value; 
-  const t=truckProfiles.find(v=>v.name===sel); 
-  if(!t) return alert('Pick a truck'); 
-  const html=`<div class='row'><label>Name</label><input id='t_name' value='${t.name}'></div><div class='row'><label>Length</label><input id='t_len' type='number' value='${t.length}'></div><div class='row'><label>Width</label><input id='t_wid' type='number' value='${t.width}'></div><div class='row'><label>Height</label><input id='t_hei' type='number' value='${t.height}'></div><div class='row'><label>Max Weight</label><input id='t_wgt' type='number' value='${t.maxWeight||0}'></div>`; 
-  showModal('Edit Truck',html,()=>{ 
-    const L=+document.getElementById('t_len').value, W=+document.getElementById('t_wid').value, H=+document.getElementById('t_hei').value, MW=+document.getElementById('t_wgt').value||0; 
-    if(!(L>0&&W>0&&H>0)) return alert('Fill all fields'); 
-    Object.assign(t,{length:L,width:W,height:H,maxWeight:MW}); 
-    saveProfiles(); populateProfileDropdowns(); 
-    document.getElementById('truckProfile').value=t.name; 
-    fillTruckDimensions(); 
-    debugLog('Truck updated: '+t.name); 
-  }); 
+function editTruckDialog(){
+  const sel=document.getElementById('truckProfile').value;
+  const t=truckProfiles.find(v=>v.name===sel);
+  if(!t) return alert('Pick a truck');
+  const html=`<div class='row'><label>Name</label><input id='t_name' value='${t.name}' disabled></div><div class='row'><label>Length</label><input id='t_len' type='number' min='1' value='${t.length}'></div><div class='row'><label>Width</label><input id='t_wid' type='number' min='1' value='${t.width}'></div><div class='row'><label>Height</label><input id='t_hei' type='number' min='1' value='${t.height}'></div><div class='row'><label>Max Weight</label><input id='t_wgt' type='number' min='0' value='${t.maxWeight||0}'></div>`;
+  showModal('Edit Truck',html,()=>{
+    const L=+document.getElementById('t_len').value, W=+document.getElementById('t_wid').value, H=+document.getElementById('t_hei').value, MW=+document.getElementById('t_wgt').value||0;
+    if(!(L>0&&W>0&&H>0)){
+      alert('Length, width, and height must be greater than 0');
+      return;
+    }
+    if(L > 10000 || W > 10000 || H > 10000){
+      alert('Dimensions too large (max 10,000 inches)');
+      return;
+    }
+    Object.assign(t,{length:L,width:W,height:H,maxWeight:MW});
+    saveProfiles(); populateProfileDropdowns();
+    document.getElementById('truckProfile').value=t.name;
+    fillTruckDimensions();
+    debugLog('Truck updated: '+t.name);
+  });
 }
 
 function deleteTruckProfile(){ 
@@ -1856,25 +1933,44 @@ function hookColorGrid(containerId,inputId){
   }); 
 }
 
-function newCaseDialog(){ 
-  const html=`<div class='row'><label>Name</label><input id='c_name'></div><div class='row'><label>Product Type</label><select id='c_product'><option value="">General</option><option value="Absen">Absen</option><option value="ROE">ROE</option><option value="Theatrixx">Theatrixx</option><option value="Processors">Processors</option><option value="Posters">Posters</option></select></div><div class='row'><label>Side 1 (L)</label><input id='c_s1' type='number'></div><div class='row'><label>Side 2 (W)</label><input id='c_s2' type='number'></div><div class='row'><label>Height</label><input id='c_h' type='number'></div><div class='row'><label>Weight</label><input id='c_w' type='number'></div><div class='row'><label>Max Stack</label><input id='c_ms' type='number' value='2'></div><div class='row'><label><input id='c_fs' type='checkbox'> Freestack</label></div><div class='row'><label>Color</label><input id='c_color' value='#3498db'>${colorChipsHTML('#3498db')}</div>`; 
-  showModal('New Case',html,()=>{ 
-    const name=document.getElementById('c_name').value.trim(); 
-    const productType=document.getElementById('c_product').value; 
-    const s1=+document.getElementById('c_s1').value, s2=+document.getElementById('c_s2').value, h=+document.getElementById('c_h').value; 
-    const w=+document.getElementById('c_w').value||0; 
-    const ms=+document.getElementById('c_ms').value||1; 
-    const fs=document.getElementById('c_fs').checked; 
-    const color=document.getElementById('c_color').value||'#3498db'; 
-    if(!name||!(s1>0&&s2>0&&h>0)) return alert('Fill all fields'); 
-    caseProfiles.push(new CaseProfile(name,s1,s2,h,w,false,fs,ms,color,productType)); 
-    saveProfiles(); 
-    populateProfileDropdowns(); 
-    document.getElementById('caseProfile').value=name; 
-    updateCaseInfo(); 
-    debugLog('Case added: '+name); 
-  }); 
-  setTimeout(()=>hookColorGrid('modalBody','c_color'),0); 
+function newCaseDialog(){
+  const html=`<div class='row'><label>Name</label><input id='c_name'></div><div class='row'><label>Product Type</label><select id='c_product'><option value="">General</option><option value="Absen">Absen</option><option value="ROE">ROE</option><option value="Theatrixx">Theatrixx</option><option value="Processors">Processors</option><option value="Posters">Posters</option></select></div><div class='row'><label>Side 1 (L)</label><input id='c_s1' type='number' min='0.1'></div><div class='row'><label>Side 2 (W)</label><input id='c_s2' type='number' min='0.1'></div><div class='row'><label>Height</label><input id='c_h' type='number' min='0.1'></div><div class='row'><label>Weight</label><input id='c_w' type='number' min='0'></div><div class='row'><label>Max Stack</label><input id='c_ms' type='number' min='1' value='2'></div><div class='row'><label><input id='c_fs' type='checkbox'> Freestack</label></div><div class='row'><label>Color</label><input id='c_color' value='#3498db'>${colorChipsHTML('#3498db')}</div>`;
+  showModal('New Case',html,()=>{
+    const name=document.getElementById('c_name').value.trim();
+    const productType=document.getElementById('c_product').value;
+    const s1=+document.getElementById('c_s1').value, s2=+document.getElementById('c_s2').value, h=+document.getElementById('c_h').value;
+    const w=+document.getElementById('c_w').value||0;
+    const ms=+document.getElementById('c_ms').value||1;
+    const fs=document.getElementById('c_fs').checked;
+    const color=document.getElementById('c_color').value||'#3498db';
+    if(!name){
+      alert('Please enter a case name');
+      return;
+    }
+    if(caseProfiles.some(c => c.name === name)){
+      alert('A case profile with this name already exists');
+      return;
+    }
+    if(!(s1>0&&s2>0&&h>0)){
+      alert('Side 1, Side 2, and Height must be greater than 0');
+      return;
+    }
+    if(s1 > 10000 || s2 > 10000 || h > 10000){
+      alert('Dimensions too large (max 10,000 inches)');
+      return;
+    }
+    if(ms < 1 || ms > 100){
+      alert('Max stack must be between 1 and 100');
+      return;
+    }
+    caseProfiles.push(new CaseProfile(name,s1,s2,h,w,false,fs,ms,color,productType));
+    saveProfiles();
+    populateProfileDropdowns();
+    document.getElementById('caseProfile').value=name;
+    updateCaseInfo();
+    debugLog('Case added: '+name);
+  });
+  setTimeout(()=>hookColorGrid('modalBody','c_color'),0);
 }
 
 function editCaseDialog(){ 
