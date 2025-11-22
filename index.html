@@ -878,6 +878,10 @@ let currentView = 'top';
 let selectedCase = null; // Track selected case for rotation
 const snapDistance = CONFIG.SNAP_DISTANCE;
 
+// Canvas drawing offsets (updated by draw2DView for interaction code)
+let canvasOffsetX = CONFIG.CANVAS_PADDING;
+let canvasOffsetY = CONFIG.CANVAS_PADDING;
+
 const defaultColors = ['#3498db','#2ecc71','#e74c3c','#f39c12','#9b59b6','#1abc9c','#34495e','#e67e22','#95a5a6','#d35400'];
 
 // Cache for filtered case profiles to avoid redundant filtering
@@ -1892,8 +1896,8 @@ function setupCanvas(){
 
   function resize(){
     const r=parent.getBoundingClientRect();
-    // Make canvas responsive but not too large
-    c.width=Math.min(Math.max(600, r.width-20), 1400);
+    // Make canvas responsive - expanded 30% wider
+    c.width=Math.min(Math.max(780, r.width-20), 1820);
     c.height=Math.min(Math.max(400, r.height-20), 900);
     updateVisualization();
   }
@@ -1948,6 +1952,10 @@ function draw2DView(view,L,W,H,zoom){
   const truckHeight = dh * scale;
   const offsetX = (c.width - truckWidth) / 2;
   const offsetY = (availableHeight - truckHeight) / 2;
+
+  // Store offsets globally for interaction code
+  canvasOffsetX = offsetX;
+  canvasOffsetY = offsetY;
 
   // Draw truck outline with centered position
   ctx.strokeStyle='#ef4444';
@@ -2228,10 +2236,11 @@ function resetZoom(){
     const L = +document.getElementById('truckLength').value;
     const W = +document.getElementById('truckWidth').value;
     const H = +document.getElementById('truckHeight').value;
-    
-    const x = (canvasX - canvasPadding) / scale;
-    const y = (canvasY - canvasPadding) / scale;
-    
+
+    // Use dynamic offsets instead of fixed padding
+    const x = (canvasX - canvasOffsetX) / scale;
+    const y = (canvasY - canvasOffsetY) / scale;
+
     if (view === 'top') {
       return { x: x, y: y, z: null };
     } else if (view === 'side') {
@@ -2245,29 +2254,30 @@ function resetZoom(){
   function findCaseAt(canvasX, canvasY) {
     const view = document.querySelector('input[name="view"]:checked').value;
     const H = +document.getElementById('truckHeight').value;
-    
+
     // Check cases in reverse order (top to bottom in rendering)
     for (let i = currentPacking.length - 1; i >= 0; i--) {
       const pc = currentPacking[i];
       let x, y, w, h;
-      
+
+      // Use dynamic offsets instead of fixed padding
       if (view === 'top') {
-        x = canvasPadding + pc.x * scale;
-        y = canvasPadding + pc.y * scale;
+        x = canvasOffsetX + pc.x * scale;
+        y = canvasOffsetY + pc.y * scale;
         w = pc.width * scale;
         h = pc.length * scale;
       } else if (view === 'side') {
-        x = canvasPadding + pc.x * scale;
-        y = canvasPadding + (H - pc.z - pc.height) * scale;
+        x = canvasOffsetX + pc.x * scale;
+        y = canvasOffsetY + (H - pc.z - pc.height) * scale;
         w = pc.width * scale;
         h = pc.height * scale;
       } else { // front
-        x = canvasPadding + pc.y * scale;
-        y = canvasPadding + (H - pc.z - pc.height) * scale;
+        x = canvasOffsetX + pc.y * scale;
+        y = canvasOffsetY + (H - pc.z - pc.height) * scale;
         w = pc.length * scale;
         h = pc.height * scale;
       }
-      
+
       if (canvasX >= x && canvasX <= x + w && canvasY >= y && canvasY <= y + h) {
         return { case: pc, index: i };
       }
