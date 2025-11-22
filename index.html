@@ -41,6 +41,9 @@
 
       --transition: all 0.2s ease;
       --transition-fast: all 0.15s ease;
+
+      /* Default zoom for better fit */
+      --default-zoom: 1.0;
     }
 
     /* ===== Base Styles ===== */
@@ -789,8 +792,8 @@
         </div>
         <div>
           <span>Zoom</span>
-          <input type="range" id="zoomSlider" min="0.1" max="5" step="0.1" value="1.2" oninput="document.getElementById('zoomValue').textContent=this.value+'x';updateVisualization()">
-          <span id="zoomValue" style="min-width:40px;display:inline-block;text-align:center">1.2x</span>
+          <input type="range" id="zoomSlider" min="0.1" max="5" step="0.1" value="1.0" oninput="document.getElementById('zoomValue').textContent=this.value+'x';updateVisualization()">
+          <span id="zoomValue" style="min-width:40px;display:inline-block;text-align:center">1.0x</span>
           <button class="btn secondary" onclick="resetZoom()">Reset</button>
         </div>
         <div style="display:flex;gap:10px;align-items:center">
@@ -835,7 +838,7 @@ const CONFIG = {
   // Canvas and visualization
   CANVAS_PADDING: 20,
   SNAP_DISTANCE: 8, // Snap within 8 inches
-  DEFAULT_ZOOM: 1.2,
+  DEFAULT_ZOOM: 1.0,
 
   // Performance limits
   MAX_POSITIONS: 2000, // Max frontier positions in smart pack
@@ -1883,7 +1886,21 @@ function rotateSelectedCase() {
 }
 
 // ===== Visualization (2D only) =====
-function setupCanvas(){ const c=document.getElementById('visualizationCanvas'); const parent=c.parentElement; function resize(){ const r=parent.getBoundingClientRect(); c.width=Math.max(900, r.width-20); c.height=Math.max(560, r.height-20); updateVisualization(); } window.addEventListener('resize', resize); setTimeout(resize,120); }
+function setupCanvas(){
+  const c=document.getElementById('visualizationCanvas');
+  const parent=c.parentElement;
+
+  function resize(){
+    const r=parent.getBoundingClientRect();
+    // Make canvas responsive but not too large
+    c.width=Math.min(Math.max(600, r.width-20), 1400);
+    c.height=Math.min(Math.max(400, r.height-20), 900);
+    updateVisualization();
+  }
+
+  window.addEventListener('resize', resize);
+  setTimeout(resize,120);
+}
 function clearCanvas(){ const c=document.getElementById('visualizationCanvas'); const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); }
 
 function updateVisualization(){ 
@@ -1906,23 +1923,39 @@ function updateVisualization(){
   draw2DView(view,L,W,H,zoom); 
 }
 
-function draw2DView(view,L,W,H,zoom){ 
-  const c=document.getElementById('visualizationCanvas'); 
-  const ctx=c.getContext('2d'); 
-  clearCanvas(); 
-  let dw,dh; 
-  if(view==='top'){ dw=L; dh=W; } 
-  else if(view==='side'){ dw=L; dh=H; } 
+function draw2DView(view,L,W,H,zoom){
+  const c=document.getElementById('visualizationCanvas');
+  const ctx=c.getContext('2d');
+  clearCanvas();
+  let dw,dh;
+  if(view==='top'){ dw=L; dh=W; }
+  else if(view==='side'){ dw=L; dh=H; }
   else { dw=W; dh=H; }
-  
-  const sx=(c.width-2*canvasPadding)/dw, sy=(c.height-2*canvasPadding)/dh; 
+
+  // Calculate optimal padding based on canvas size (10% of smallest dimension, max 40px)
+  const dynamicPadding = Math.min(40, Math.max(15, Math.min(c.width, c.height) * 0.05));
+
+  // Reserve space at bottom for statistics (120px)
+  const statsHeight = 120;
+  const availableHeight = c.height - statsHeight;
+
+  const sx=(c.width-2*dynamicPadding)/dw;
+  const sy=(availableHeight-2*dynamicPadding)/dh;
   scale=Math.min(sx,sy)*zoom;
-  
-  ctx.strokeStyle='#ef4444'; 
-  ctx.lineWidth=2; 
-  ctx.strokeRect(canvasPadding,canvasPadding,dw*scale,dh*scale);
-  
-  currentPacking.forEach((pc,i)=> drawCase2D(ctx,pc,i,view,H));
+
+  // Center the truck visualization
+  const truckWidth = dw * scale;
+  const truckHeight = dh * scale;
+  const offsetX = (c.width - truckWidth) / 2;
+  const offsetY = (availableHeight - truckHeight) / 2;
+
+  // Draw truck outline with centered position
+  ctx.strokeStyle='#ef4444';
+  ctx.lineWidth=2;
+  ctx.strokeRect(offsetX, offsetY, truckWidth, truckHeight);
+
+  // Draw cases with offset applied
+  currentPacking.forEach((pc,i)=> drawCase2D(ctx,pc,i,view,H,offsetX,offsetY));
   
   ctx.fillStyle='#111827'; 
 ctx.textAlign='center'; 
@@ -1995,21 +2028,21 @@ if(remainingTypes > 0){
 }
 }
 
-function drawCase2D(ctx,pc,index,view,H){
+function drawCase2D(ctx,pc,index,view,H,offsetX=canvasPadding,offsetY=canvasPadding){
   let x,y,w,h;
   if(view==='top'){
-    x=canvasPadding+pc.x*scale;
-    y=canvasPadding+pc.y*scale;
+    x=offsetX+pc.x*scale;
+    y=offsetY+pc.y*scale;
     w=pc.width*scale;
     h=pc.length*scale;
   } else if(view==='side'){
-    x=canvasPadding+pc.x*scale;
-    y=canvasPadding+(H-pc.z-pc.height)*scale;
+    x=offsetX+pc.x*scale;
+    y=offsetY+(H-pc.z-pc.height)*scale;
     w=pc.width*scale;
     h=pc.height*scale;
   } else {
-    x=canvasPadding+pc.y*scale;
-    y=canvasPadding+(H-pc.z-pc.height)*scale;
+    x=offsetX+pc.y*scale;
+    y=offsetY+(H-pc.z-pc.height)*scale;
     w=pc.length*scale;
     h=pc.height*scale;
   }
