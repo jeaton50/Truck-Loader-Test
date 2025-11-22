@@ -5,58 +5,656 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Truck Loader — JS port of Python packing math</title>
   <style>
-    *{box-sizing:border-box}
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f7fb;margin:0}
-    .container{display:flex;gap:12px;padding:12px;height:100vh}
-    .left{width:360px;background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.06);padding:12px;overflow:auto}
-    .right{flex:1;background:#fff;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.06);display:flex;flex-direction:column;min-width:480px}
-    .section{border:1px solid #e5e7eb;border-radius:8px;margin-bottom:12px}
-    .section>.hd{padding:10px 12px;border-bottom:1px solid #e5e7eb;background:#f8fafc;font-weight:700;color:#334155;border-radius:8px 8px 0 0}
-    .section>.bd{padding:12px}
-    .row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
-    label{font-size:12px;color:#475569;min-width:110px}
-    input,select{border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;font-size:12px;flex:1}
-    input:focus,select:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.15)}
-    .btn{border:0;border-radius:6px;padding:8px 10px;font-size:12px;cursor:pointer}
-    .btn:disabled{opacity:.6;cursor:not-allowed}
-    .primary{background:#2563eb;color:#fff}
-    .secondary{background:#64748b;color:#fff}
-    .warn{background:#f59e0b;color:#111827}
-    .success{background:#16a34a;color:#fff}
-    .danger{background:#dc2626;color:#fff}
-    .group{display:flex;gap:6px;flex-wrap:wrap}
-    .list{border-top:1px solid #e5e7eb;max-height:160px;overflow:auto;font-size:12px}
-    .item{padding:8px 10px;border-bottom:1px solid #f1f5f9;cursor:pointer}
-    .item.selected{background:#2563eb;color:#fff}
-    .tabs{display:flex;border-bottom:1px solid #e5e7eb;background:#f8fafc}
-    .tab{padding:12px 16px;cursor:pointer;color:#334155;border-bottom:2px solid transparent}
-    .tab.active{color:#2563eb;background:#fff;border-bottom-color:#2563eb}
-    .panel{flex:1;padding:12px;overflow:auto}
-    .controls{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px;border-bottom:1px solid #e5e7eb;background:#f8fafc}
-    .canvas-wrap{position:relative;flex:1;overflow:auto}
-    canvas{display:block;border:1px solid #e5e7eb;background:#fff}
-    .legend{display:flex;gap:10px;flex-wrap:wrap;padding:10px 0;font-size:12px;color:#334155}
-    .legend .sw{width:12px;height:12px;border:1px solid #0f172a22;border-radius:2px;margin-right:6px;display:inline-block;vertical-align:middle}
-    .status{padding:10px 12px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:12px;color:#475569}
-    .debug{background:#0b1020;color:#d1d5db;border-radius:8px;padding:10px;font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;height:320px;overflow:auto;white-space:pre-wrap}
-    @media(max-width:960px){.container{flex-direction:column}.left{width:100%}}
-  
-  .stats-card{max-width:820px;margin:0 auto;border:1px solid #e5e7eb;border-radius:10px;padding:18px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.05);font:13px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-  .stats-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;color:#475569}
-  .stats-title{font-weight:800;text-align:center;margin:8px 0 12px 0;color:#111827;letter-spacing:.3px}
-  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .stats-block{border:1px solid #e5e7eb;border-radius:8px;padding:12px}
-  .stats-block h4{margin:0 0 10px 0;font-size:12px;color:#334155;letter-spacing:.2px}
-  .kv{display:flex;justify-content:space-between;margin:4px 0}
-  .kv b{color:#111827}
-  .case-row{display:flex;justify-content:space-between;border-top:1px dashed #e5e7eb;padding:6px 0;font-size:12px}
-  .case-row:first-of-type{border-top:0;padding-top:0}
-  .dim{font-size:11px;color:#64748b}
-  .smallnote{font-size:11px;color:#64748b;margin-top:8px}
-  @media print{ body{background:#fff} .left,.tabs,.controls,.status,.legend{display:none!important} .right{box-shadow:none} .stats-card{box-shadow:none;border:0;margin:0} }
+    /* ===== CSS Variables & Design System ===== */
+    :root {
+      --color-primary: #2563eb;
+      --color-primary-light: #3b82f6;
+      --color-primary-dark: #1d4ed8;
+      --color-secondary: #64748b;
+      --color-success: #16a34a;
+      --color-warning: #f59e0b;
+      --color-danger: #dc2626;
+      --color-info: #0ea5e9;
 
-  #legend { display: none; }
-</style>
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+
+      --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
+      --shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+      --shadow-2xl: 0 25px 50px -12px rgba(0,0,0,0.25);
+
+      --radius-sm: 6px;
+      --radius: 8px;
+      --radius-lg: 10px;
+      --radius-xl: 12px;
+
+      --transition: all 0.2s ease;
+      --transition-fast: all 0.15s ease;
+    }
+
+    /* ===== Base Styles ===== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background-attachment: fixed;
+      margin: 0;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ===== Layout ===== */
+    .container {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      height: 100vh;
+      max-width: 1920px;
+      margin: 0 auto;
+    }
+
+    .left {
+      width: 380px;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-xl);
+      padding: 16px;
+      overflow: auto;
+      transition: var(--transition);
+      border: 1px solid rgba(255,255,255,0.8);
+    }
+
+    .left:hover {
+      box-shadow: var(--shadow-2xl);
+    }
+
+    .right {
+      flex: 1;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-xl);
+      display: flex;
+      flex-direction: column;
+      min-width: 480px;
+      transition: var(--transition);
+      border: 1px solid rgba(255,255,255,0.8);
+    }
+
+    .right:hover {
+      box-shadow: var(--shadow-2xl);
+    }
+
+    /* ===== Sections ===== */
+    .section {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      margin-bottom: 14px;
+      transition: var(--transition);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .section:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+
+    .section > .hd {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--gray-200);
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      font-weight: 700;
+      color: var(--gray-700);
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      font-size: 13px;
+      letter-spacing: 0.3px;
+    }
+
+    .section > .bd {
+      padding: 14px;
+    }
+
+    /* ===== Form Elements ===== */
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    label {
+      font-size: 12px;
+      color: var(--gray-600);
+      min-width: 110px;
+      font-weight: 500;
+    }
+
+    input, select {
+      border: 1.5px solid var(--gray-300);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-size: 12px;
+      flex: 1;
+      transition: var(--transition);
+      background: #fff;
+      font-family: inherit;
+    }
+
+    input:hover, select:hover {
+      border-color: var(--gray-400);
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      transform: translateY(-1px);
+    }
+
+    /* Input Validation States */
+    input.invalid, select.invalid {
+      border-color: var(--color-danger);
+      background: #fef2f2;
+    }
+
+    input.valid, select.valid {
+      border-color: var(--color-success);
+      background: #f0fdf4;
+    }
+
+    .input-hint {
+      font-size: 11px;
+      color: var(--color-danger);
+      margin-top: 4px;
+      display: none;
+      animation: slideDown 0.2s ease;
+    }
+
+    input.invalid ~ .input-hint,
+    select.invalid ~ .input-hint {
+      display: block;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-5px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ===== Buttons ===== */
+    .btn {
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 9px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      font-family: inherit;
+      letter-spacing: 0.3px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.3);
+      transform: translate(-50%, -50%);
+      transition: width 0.6s, height 0.6s;
+    }
+
+    .btn:active::before {
+      width: 300px;
+      height: 300px;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .primary {
+      background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+      color: #fff;
+    }
+
+    .primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--color-primary) 100%);
+    }
+
+    .secondary {
+      background: linear-gradient(135deg, var(--gray-500) 0%, var(--gray-600) 100%);
+      color: #fff;
+    }
+
+    .secondary:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--gray-600) 0%, var(--gray-700) 100%);
+    }
+
+    .warn {
+      background: linear-gradient(135deg, #fbbf24 0%, var(--color-warning) 100%);
+      color: var(--gray-900);
+    }
+
+    .success {
+      background: linear-gradient(135deg, #22c55e 0%, var(--color-success) 100%);
+      color: #fff;
+    }
+
+    .danger {
+      background: linear-gradient(135deg, #ef4444 0%, var(--color-danger) 100%);
+      color: #fff;
+    }
+
+    .group {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+
+    /* ===== Lists ===== */
+    .list {
+      border-top: 1px solid var(--gray-200);
+      max-height: 180px;
+      overflow: auto;
+      font-size: 12px;
+    }
+
+    .list::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .list::-webkit-scrollbar-track {
+      background: var(--gray-100);
+      border-radius: 4px;
+    }
+
+    .list::-webkit-scrollbar-thumb {
+      background: var(--gray-300);
+      border-radius: 4px;
+    }
+
+    .list::-webkit-scrollbar-thumb:hover {
+      background: var(--gray-400);
+    }
+
+    .item {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--gray-100);
+      cursor: pointer;
+      transition: var(--transition);
+      position: relative;
+    }
+
+    .item::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--color-primary);
+      opacity: 0;
+      transition: var(--transition);
+    }
+
+    .item:hover {
+      background: var(--gray-50);
+      padding-left: 16px;
+    }
+
+    .item:hover::before {
+      opacity: 1;
+    }
+
+    .item.selected {
+      background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+      color: #fff;
+      padding-left: 16px;
+      font-weight: 500;
+    }
+
+    .item.selected::before {
+      opacity: 1;
+      width: 4px;
+    }
+
+    /* ===== Tabs ===== */
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid var(--gray-200);
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      overflow: hidden;
+    }
+
+    .tab {
+      padding: 14px 18px;
+      cursor: pointer;
+      color: var(--gray-600);
+      border-bottom: 3px solid transparent;
+      transition: var(--transition);
+      font-size: 13px;
+      font-weight: 600;
+      position: relative;
+    }
+
+    .tab::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--color-primary);
+      transform: scaleX(0);
+      transition: transform 0.3s ease;
+    }
+
+    .tab:hover {
+      color: var(--color-primary);
+      background: rgba(37, 99, 235, 0.05);
+    }
+
+    .tab.active {
+      color: var(--color-primary);
+      background: #fff;
+    }
+
+    .tab.active::after {
+      transform: scaleX(1);
+    }
+
+    .panel {
+      flex: 1;
+      padding: 16px;
+      overflow: auto;
+    }
+
+    /* ===== Controls ===== */
+    .controls {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--gray-200);
+      background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+    }
+
+    /* ===== Progress Bar ===== */
+    .progress-container {
+      position: relative;
+      width: 100%;
+      height: 4px;
+      background: var(--gray-200);
+      border-radius: 2px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress-container.active {
+      display: block;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-light) 50%, var(--color-primary) 100%);
+      background-size: 200% 100%;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+      animation: shimmer 2s infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    /* ===== Canvas ===== */
+    .canvas-wrap {
+      position: relative;
+      flex: 1;
+      overflow: auto;
+      background: linear-gradient(135deg, #fafafa 0%, #ffffff 100%);
+    }
+
+    canvas {
+      display: block;
+      border: 2px solid var(--gray-200);
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin: auto;
+    }
+
+    /* ===== Legend ===== */
+    .legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 12px 0;
+      font-size: 12px;
+      color: var(--gray-700);
+    }
+
+    .legend .sw {
+      width: 14px;
+      height: 14px;
+      border: 1px solid rgba(0,0,0,0.15);
+      border-radius: 3px;
+      margin-right: 6px;
+      display: inline-block;
+      vertical-align: middle;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* ===== Status Bar ===== */
+    .status {
+      padding: 12px 16px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border-top: 1px solid var(--gray-200);
+      font-size: 12px;
+      color: var(--gray-600);
+      font-weight: 500;
+    }
+
+    /* ===== Debug Log ===== */
+    .debug {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #e2e8f0;
+      border-radius: var(--radius);
+      padding: 12px;
+      font: 12px/1.6 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      height: 340px;
+      overflow: auto;
+      white-space: pre-wrap;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .debug::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    .debug::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+
+    .debug::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 5px;
+    }
+
+    /* ===== Statistics Card ===== */
+    .stats-card {
+      max-width: 860px;
+      margin: 0 auto;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      box-shadow: var(--shadow-lg);
+      font: 13px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+    }
+
+    .stats-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: var(--gray-600);
+    }
+
+    .stats-title {
+      font-weight: 800;
+      text-align: center;
+      margin: 10px 0 14px 0;
+      color: var(--gray-900);
+      letter-spacing: 0.5px;
+      font-size: 15px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .stats-block {
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: #fff;
+      box-shadow: var(--shadow-sm);
+      transition: var(--transition);
+    }
+
+    .stats-block:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+
+    .stats-block h4 {
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      color: var(--gray-700);
+      letter-spacing: 0.3px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .kv {
+      display: flex;
+      justify-content: space-between;
+      margin: 5px 0;
+    }
+
+    .kv b {
+      color: var(--gray-900);
+      font-weight: 600;
+    }
+
+    .case-row {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px dashed var(--gray-200);
+      padding: 7px 0;
+      font-size: 12px;
+    }
+
+    .case-row:first-of-type {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .dim {
+      font-size: 11px;
+      color: var(--gray-500);
+    }
+
+    .smallnote {
+      font-size: 11px;
+      color: var(--gray-500);
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    /* ===== Responsive ===== */
+    @media(max-width:960px) {
+      .container {
+        flex-direction: column;
+      }
+      .left {
+        width: 100%;
+      }
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ===== Print Styles ===== */
+    @media print {
+      body {
+        background: #fff;
+      }
+      .left, .tabs, .controls, .status, .legend {
+        display: none !important;
+      }
+      .right {
+        box-shadow: none;
+      }
+      .stats-card {
+        box-shadow: none;
+        border: 0;
+        margin: 0;
+      }
+    }
+
+    #legend {
+      display: none;
+    }
+  </style>
 </head>
 <body>
 <div class="container">
@@ -161,7 +759,10 @@
       <div class="hd">🚀 Actions</div>
       <div class="bd">
         <button id="packButton" class="btn primary" style="width:100%;margin-bottom:8px" onclick="packAndVisualize()">🚛 Pack Truck</button>
-        <button class="btn warn" style="width:100%;margin-bottom:8px" onclick="quickTest()">⚡ Quick Test (5)</button>
+        <div id="packProgress" class="progress-container">
+          <div id="packProgressBar" class="progress-bar" style="width: 0%"></div>
+        </div>
+        <button class="btn warn" style="width:100%;margin-bottom:8px;margin-top:8px" onclick="quickTest()">⚡ Quick Test (5)</button>
         <button class="btn secondary" style="width:100%;margin-bottom:8px" onclick="exportReport()">📊 Export Report</button>
         <button class="btn secondary" style="width:100%;margin-bottom:8px" onclick="exportVisualization()">🖼️ Export PNG</button>
         <button class="btn danger" style="width:100%" onclick="clearAll()">🔄 Clear All</button>
@@ -807,34 +1408,70 @@ function packAndVisualize(){
   debugLog('==================================================');
   debugLog(`START PACK | Truck ${L}L × ${W}W × ${H}H`);
   debugLog('Individual Stack Heights (per case):'); caseLoads.forEach(l=> debugLog(`  ${l.profile.name}: Max Stack ${l.profile.maxStack}, Global Stack ${l.globalStack}`));
-  const btn=document.getElementById('packButton'); btn.disabled=true; btn.textContent='Packing…';
+
+  // Show progress bar
+  const btn=document.getElementById('packButton');
+  const progressContainer=document.getElementById('packProgress');
+  const progressBar=document.getElementById('packProgressBar');
+  btn.disabled=true;
+  btn.textContent='✨ Packing…';
+  progressContainer.classList.add('active');
+  progressBar.style.width = '0%';
+
   setTimeout(()=>{
     try{
+      progressBar.style.width = '20%';
       const alg = document.querySelector('input[name="algorithm"]:checked').value;
       const regular = caseLoads.filter(l=>!l.profile.freestack);
       const free = caseLoads.filter(l=>l.profile.freestack);
       debugLog(`Regular items: ${regular.length} types`);
       debugLog(`Freestack items: ${free.length} types`);
+
+      progressBar.style.width = '40%';
       // Temporarily set caseLoads = regular for internal helpers
       const original = caseLoads; caseLoads = regular;
       let arrangement=[];
       if(alg==='auto_grid'){ debugLog('Using Auto Grid (with rotated remainder) for regular items'); arrangement = autoGridPack(L,W,H); }
       else if(alg==='smart'){ debugLog('Using smart packing algorithm for regular items'); arrangement = smartPack(L,W,H); }
       else { debugLog('Using grid packing algorithm for regular items'); arrangement = simpleGridPack(L,W,H); }
+
+      progressBar.style.width = '60%';
       if(alg!=='auto_grid'){ arrangement = edgeFillPass(arrangement,L,W,H); }
       // Restore full loads
       caseLoads = original;
+
+      progressBar.style.width = '75%';
       if(free.length){ debugLog('=============================='); debugLog('FREESTACK PHASE: Placing items on existing surfaces'); arrangement = placeFreestackItems(arrangement,L,W,H); }
+
+      progressBar.style.width = '90%';
       currentPacking = arrangement;
       updateCaseList(); updateVisualization(); updateStatistics(); renderStatisticsCard();
+
+      progressBar.style.width = '100%';
       const requested = caseLoads.reduce((s,l)=>s+l.quantity,0); const packed = arrangement.length; const reg = arrangement.filter(c=>!c.isFreestack).length; const fr = arrangement.length - reg;
       debugLog(`PACK DONE: ${packed}/${requested} total`); debugLog(`  Regular: ${reg}, Freestack: ${fr}`);
       let summary = `Packing Complete!\n\nTotal: ${packed}/${requested} cases`; if(requested) summary += ` (${(packed/requested*100).toFixed(1)}%)`;
       if(fr>0){ summary += `\n\nRegular items: ${reg}\nFreestack items: ${fr}`; }
       summary += `\n\n` + caseLoads.map(l=> `${l.profile.name}: ${l.packedCount}/${l.quantity}` + (l.profile.freestack?' [FREESTACK]':'' )).join('\n');
+
+      // Hide progress bar after a short delay
+      setTimeout(() => {
+        progressContainer.classList.remove('active');
+        progressBar.style.width = '0%';
+      }, 800);
+
       alert(summary);
-    }catch(e){ console.error(e); debugLog('Packing error: '+e.message); alert('Packing failed: '+e.message); }
-    finally{ btn.disabled=false; btn.textContent='🚛 Pack Truck'; }
+    }catch(e){
+      console.error(e);
+      debugLog('Packing error: '+e.message);
+      progressContainer.classList.remove('active');
+      progressBar.style.width = '0%';
+      alert('Packing failed: '+e.message);
+    }
+    finally{
+      btn.disabled=false;
+      btn.textContent='🚛 Pack Truck';
+    }
   }, 20);
 }
 
@@ -1358,69 +1995,165 @@ if(remainingTypes > 0){
 }
 }
 
-function drawCase2D(ctx,pc,index,view,H){ 
-  let x,y,w,h; 
-  if(view==='top'){ 
-    x=canvasPadding+pc.x*scale; 
-    y=canvasPadding+pc.y*scale; 
-    w=pc.width*scale; 
-    h=pc.length*scale; 
-  } else if(view==='side'){ 
-    x=canvasPadding+pc.x*scale; 
-    y=canvasPadding+(H-pc.z-pc.height)*scale; 
-    w=pc.width*scale; 
-    h=pc.height*scale; 
-  } else { 
-    x=canvasPadding+pc.y*scale; 
-    y=canvasPadding+(H-pc.z-pc.height)*scale; 
-    w=pc.length*scale; 
-    h=pc.height*scale; 
+function drawCase2D(ctx,pc,index,view,H){
+  let x,y,w,h;
+  if(view==='top'){
+    x=canvasPadding+pc.x*scale;
+    y=canvasPadding+pc.y*scale;
+    w=pc.width*scale;
+    h=pc.length*scale;
+  } else if(view==='side'){
+    x=canvasPadding+pc.x*scale;
+    y=canvasPadding+(H-pc.z-pc.height)*scale;
+    w=pc.width*scale;
+    h=pc.height*scale;
+  } else {
+    x=canvasPadding+pc.y*scale;
+    y=canvasPadding+(H-pc.z-pc.height)*scale;
+    w=pc.length*scale;
+    h=pc.height*scale;
   }
-  
-  let color = pc.caseProfile? pc.caseProfile.color : '#3498db'; 
-  if(pc.rotation===90) color='#f39c12';
-  
-  // Highlight if being dragged
+
+  let baseColor = pc.caseProfile? pc.caseProfile.color : '#3498db';
+  if(pc.rotation===90) baseColor='#f39c12';
+
+  // Calculate depth for shadow (higher z = less shadow)
+  const depthFactor = view !== 'top' ? (1 - (pc.z / H) * 0.3) : 1;
+
+  // Save context for shadow
+  ctx.save();
+
   if(pc === draggedCase && isDragging) {
-    ctx.fillStyle = '#fbbf24'; // Bright yellow for dragging
+    // Dragging state - elevated with strong shadow
+    ctx.shadowColor = 'rgba(245, 158, 11, 0.6)';
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 8;
+
+    // Create gradient for 3D effect
+    const gradient = ctx.createLinearGradient(x, y, x+w, y+h);
+    gradient.addColorStop(0, '#fbbf24');
+    gradient.addColorStop(1, '#f59e0b');
+    ctx.fillStyle = gradient;
     ctx.fillRect(x, y, w, h);
-    ctx.setLineDash([]);
+
+    ctx.shadowColor = 'transparent';
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#f59e0b';
     ctx.strokeRect(x, y, w, h);
+
   } else if(pc === selectedCase) {
-    // Selected case - cyan highlight
-    ctx.fillStyle = color;
+    // Selected state - cyan glow
+    ctx.shadowColor = 'rgba(6, 182, 212, 0.5)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 4;
+
+    const gradient = ctx.createLinearGradient(x, y, x, y+h);
+    gradient.addColorStop(0, lightenColor(baseColor, 20));
+    gradient.addColorStop(1, baseColor);
+    ctx.fillStyle = gradient;
     ctx.fillRect(x, y, w, h);
+
+    ctx.shadowColor = 'transparent';
     ctx.setLineDash([5, 3]);
     ctx.lineWidth = 3;
-    ctx.strokeStyle = '#06b6d4'; // Cyan for selection
+    ctx.strokeStyle = '#06b6d4';
     ctx.strokeRect(x, y, w, h);
     ctx.setLineDash([]);
-    
-    // Draw rotation indicator (small arrow in corner)
+
+    // Draw rotation indicator
     ctx.fillStyle = '#06b6d4';
     ctx.font = 'bold 14px Arial';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillText('↻', x + w - 4, y + 4);
+
   } else {
-    ctx.fillStyle=color; 
-    ctx.fillRect(x,y,w,h); 
-    ctx.setLineDash(pc.isFreestack?[5,4]:[]); 
-    ctx.lineWidth= pc.isFreestack? 2:1; 
-    ctx.strokeStyle='#0f172a'; 
-    ctx.strokeRect(x,y,w,h); 
-    ctx.setLineDash([]); 
+    // Normal state - gradient fill with shadow for depth
+    ctx.shadowColor = `rgba(0, 0, 0, ${0.15 * depthFactor})`;
+    ctx.shadowBlur = 8 * depthFactor;
+    ctx.shadowOffsetX = 2 * depthFactor;
+    ctx.shadowOffsetY = 3 * depthFactor;
+
+    // Create gradient for 3D effect
+    const gradient = ctx.createLinearGradient(x, y, x, y+h);
+    gradient.addColorStop(0, lightenColor(baseColor, 15));
+    gradient.addColorStop(0.5, baseColor);
+    gradient.addColorStop(1, darkenColor(baseColor, 10));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, y, w, h);
+
+    // Add subtle highlight on top edge
+    if(w > 10 && h > 10) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillRect(x, y, w, Math.max(2, h * 0.15));
+    }
+
+    ctx.shadowColor = 'transparent';
+
+    // Border
+    ctx.setLineDash(pc.isFreestack?[5,4]:[]);
+    ctx.lineWidth = pc.isFreestack? 2:1.5;
+    ctx.strokeStyle = darkenColor(baseColor, 25);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+
+    // Add inner shadow for more depth
+    if(w > 15 && h > 15) {
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(x+1, y+1, w-2, h-2);
+    }
   }
-  
-  if(w>24&&h>16){ 
-    ctx.fillStyle= (pc === draggedCase && isDragging) ? '#000' : (pc === selectedCase) ? '#000' : '#fff'; 
-    ctx.font='bold 10px Arial'; 
+
+  ctx.restore();
+
+  // Draw case number/label with shadow for readability
+  if(w>24&&h>16){
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
+
+    ctx.fillStyle= (pc === draggedCase && isDragging) ? '#fff' : (pc === selectedCase) ? '#fff' : 'rgba(255, 255, 255, 0.95)';
+    ctx.font='bold 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif';
     ctx.textAlign='center';
     ctx.textBaseline = 'middle';
-    ctx.fillText((index+1).toString(), x+w/2, y+h/2); 
+    ctx.fillText((index+1).toString(), x+w/2, y+h/2);
+    ctx.restore();
+
+    // Draw stack indicator if multiple layers
+    if(view !== 'top' && pc.layer > 1 && w > 30) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.font = '9px Arial';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`L${pc.layer}`, x + 3, y + 2);
+      ctx.restore();
+    }
   }
+}
+
+// Helper functions for color manipulation
+function lightenColor(color, percent) {
+  const num = parseInt(color.replace("#",""), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = Math.min(255, (num >> 16) + amt);
+  const G = Math.min(255, (num >> 8 & 0x00FF) + amt);
+  const B = Math.min(255, (num & 0x0000FF) + amt);
+  return "#" + (0x1000000 + R*0x10000 + G*0x100 + B).toString(16).slice(1);
+}
+
+function darkenColor(color, percent) {
+  const num = parseInt(color.replace("#",""), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = Math.max(0, (num >> 16) - amt);
+  const G = Math.max(0, (num >> 8 & 0x00FF) - amt);
+  const B = Math.max(0, (num & 0x0000FF) - amt);
+  return "#" + (0x1000000 + R*0x10000 + G*0x100 + B).toString(16).slice(1);
 }
 
 // ===== View state & interactions (simplified for 2D only) =====
